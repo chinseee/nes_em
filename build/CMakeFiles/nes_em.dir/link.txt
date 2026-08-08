@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/nes_em.dir/src/main.cpp.o CMakeFiles/nes_em.dir/src/cpu.cpp.o CMakeFiles/nes_em.dir/src/cpu_debug.cpp.o CMakeFiles/nes_em.dir/src/nes_file.cpp.o -o /home/chenxi/source/repos/nes/bin/nes_em 

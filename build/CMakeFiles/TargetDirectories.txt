@@ -1,0 +1,3 @@
+/home/chenxi/source/repos/nes/build/CMakeFiles/nes_em.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/edit_cache.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/rebuild_cache.dir
