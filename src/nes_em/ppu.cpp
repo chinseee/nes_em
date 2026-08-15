@@ -288,26 +288,20 @@ void PPU::bg_fetch_cycle() {
     }
 }
 
-uint8_t PPU::cpu_read(uint16_t addr) {
+BusRead PPU::cpu_read(uint16_t addr) {
     switch (addr & 0x1f) {
     case 0x2: {
-        // top 3 bits come from ppustatus, bottom 5 are stale bus contents
-        uint8_t status_mask = (1 << VBLANK_BIT) | (1 << SPRITE_ZERO_HIT_BIT) | (1 << SPRITE_OVERFLOW_BIT);
-        uint8_t value = (ppustatus.to_ulong() & status_mask) | (io_bus & 0x1f);
+        uint8_t value = ppustatus.to_ulong();
 
         ppustatus[VBLANK_BIT] = false; // reading clears the vblank flag
         w = false;
-
-        io_bus = value;
-        return value;
+        return {value, 0x1f};
     }
     case 0x4: {
         uint8_t value = oam[oam_addr];
         if ((oam_addr & 0x3) == 0x2)
             value &= 0xe3; // attribute byte bits 2-4 are unimplemented, always read as 0
-
-        io_bus = value;
-        return value;
+        return {value, 0};
     }
     case 0x7: {
         uint16_t vram_addr = v & 0x3fff;
@@ -326,19 +320,14 @@ uint8_t PPU::cpu_read(uint16_t addr) {
         v += ppuctrl[VRAM_INC_BIT] ? 32 : 1;
 
         ppu_data = value;
-        io_bus = value;
-        return value;
+        return {value, 0};
     }
     default:
-        // write-only registers return whatever was last driven on the bus
-        // TODO: remove ppu's io_bus member, add open_read member and move open bus behavior to Bus class
-        return io_bus;
+        return {0, 0xff};
     }
 }
 
 void PPU::cpu_write(uint16_t addr, uint8_t value) {
-    io_bus = value;
-
     switch (addr & 0x1f) {
     case 0x0:
         ppuctrl = value;

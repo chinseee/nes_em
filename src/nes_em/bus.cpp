@@ -1,11 +1,25 @@
 #include "nes_em/bus.h"
 #include "nes_em/ppu.h"
 #include "nes_em/cartridge/cartridge.h"
+#include "nes_em/nes.h"
 #include <random>
 
 #include <iostream>
 
 namespace nes_em {
+
+Bus::Bus():
+    ppu(nullptr),
+    cart(nullptr)
+{}
+
+void Bus::build(NES* nes) {
+    ppu = &nes->ppu;
+}
+
+void Bus::load(Cartridge* cart) {
+    this->cart = cart;
+}
 
 void Bus::reset() {
     std::random_device rd;
@@ -16,17 +30,27 @@ void Bus::reset() {
         cpu_ram[i] = dist(gen);
 }
 
+void Bus::update_controller_input(size_t idx, uint8_t input) {
+    if (idx < 2)
+        controls[idx].update_input(input);
+}
+
 uint8_t Bus::cpu_read(uint16_t addr) {
-    if (addr < 0x2000)
+    if (addr < 0x2000) {
         cpu_data = cpu_ram[addr & 0x7ff];
-    else if (addr < 0x4000)
-        cpu_data = ppu->cpu_read((addr & 7) | 0x2000);
-    else {
-        uint8_t cart_data = cart->cpu_read(addr);
-        if (!cart->open_cpu_read)
-            cpu_data = cart_data;
+        return cpu_data;
     }
-    
+    BusRead read;
+
+    if (addr < 0x4000)
+        read = ppu->cpu_read((addr & 7) | 0x2000);
+    else if (addr == 0x4016 || addr == 0x4017)
+        read = controls[addr & 1].cpu_read();
+    else
+        read = cart->cpu_read(addr);
+
+    cpu_data &= read.open_bus_mask;
+    cpu_data |= (read.value & ~read.open_bus_mask);
     return cpu_data;
 }
 
@@ -38,8 +62,16 @@ void Bus::cpu_write(uint16_t addr, uint8_t value) {
     else if (addr < 0x4000) {
         ppu->cpu_write((addr & 7) | 0x2000, value);
     }
-    else if (addr == 4014) {
-        ppu->cpu_write(addr, value);
+    else if (addr < 0x4018) {
+        switch (addr & 0x1f) {
+        case 0x14:
+            ppu->cpu_write(addr, value);
+            break;
+        case 0x16:
+            controls[0].cpu_write(value);
+            controls[1].cpu_write(value);
+            break;
+        }
     }
     else {
         cart->cpu_write(addr, value);
@@ -68,9 +100,9 @@ uint16_t Bus::unmirror_ppu_addr(uint16_t addr) {
 uint8_t Bus::ppu_read(uint16_t addr) {
     // TODO: add way for cartridges to disable internal vram
     if (addr < 0x2000) {
-        uint8_t cart_data = cart->ppu_read(addr);
-        if (!cart->open_ppu_read)
-            ppu_data = cart_data;
+        BusRead read = cart->ppu_read(addr);
+        ppu_data &= read.open_bus_mask;
+        ppu_data |= (read.value & ~read.open_bus_mask);
     }
     else if (addr < 0x3f00) {
         ppu_data = vram[unmirror_ppu_addr(addr)];

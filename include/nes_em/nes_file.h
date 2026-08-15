@@ -1,17 +1,7 @@
 #pragma once
-#include <array>
-#include <cstdint>
-#include <fstream>
-#include <string>
-#include <vector>
+#include "nes_em/fwd.h"
 
 namespace nes_em {
-
-enum class Mirroring {
-    Horizontal,
-    Vertical,
-    FourScreen,
-};
 
 struct NesFile {
     static constexpr std::array<uint8_t, 4> NES_HEADER{
@@ -38,4 +28,5 @@ struct NesFile {
 private:
     void read();
 };
+
 }

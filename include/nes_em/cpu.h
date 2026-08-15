@@ -1,10 +1,6 @@
 #pragma once
 #include "nes_em/fwd.h"
 #include "nes_em/nes_file.h"
-#include <bitset>
-#include <cstdint>
-#include <utility>
-
 
 namespace nes_em {
 
@@ -40,7 +36,6 @@ public:
     PPU* ppu;
     Bus* bus;
 
-
     // registers
     uint16_t pc;
     uint8_t a, x, y, sp;
@@ -61,6 +56,8 @@ public:
     void exec_inst();
 
     void cycle();
+
+private:
     void poll_interrupts();
 
     uint8_t inst_read();
@@ -70,7 +67,6 @@ public:
     uint8_t pull();
 
     void set_zn(uint8_t);
-
     void branch(bool, uint8_t);
 
     // access
@@ -178,7 +174,6 @@ public:
     // interrupts
     void interrupt();
 
-private:
     template <void (CPU::*op)(uint16_t), AddrMode mode, bool rmw>
     void opcode_impl();
     

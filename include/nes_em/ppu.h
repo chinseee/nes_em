@@ -1,10 +1,8 @@
 #pragma once
 #include "nes_em/fwd.h"
+#include "nes_em/bus.h"
 #include "nes_em/nes_file.h"
 #include "nes_em/listeners.h"
-#include <cstdint>
-#include <bitset>
-#include <vector>
 
 namespace nes_em {
 
@@ -47,7 +45,6 @@ public:
     uint16_t ppu_addr;
     uint8_t ppu_data, oam_dma;
     uint8_t ppu_data_buffer; // internal read buffer behind $2007
-    uint8_t io_bus; // last value driven onto the ppu data bus (open-bus reads)
 
     // internal regs
     uint16_t v, t;
@@ -78,7 +75,7 @@ public:
     void reset();
     void cycle();
 
-    uint8_t cpu_read(uint16_t);
+    BusRead cpu_read(uint16_t);
     void cpu_write(uint16_t, uint8_t);
 
     void coarse_x_inc();

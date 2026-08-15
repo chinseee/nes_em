@@ -20,6 +20,7 @@ add_library(nes_em_core
     src/nes_em/cartridge/nrom_cart.cpp
     src/nes_em/nes_file.cpp
     src/nes_em/bus.cpp
+    src/nes_em/controller.cpp
     src/nes_em/cpu.cpp 
     src/nes_em/cpu_debug.cpp 
     src/nes_em/nes.cpp

@@ -11,12 +11,12 @@ NES::NES() {
     ppu.cpu = &cpu;
     ppu.bus = &bus;
 
-    bus.ppu = &ppu;
+    bus.build(this);
 }
 
 void NES::load(const NesFile& file) {
     cart = std::move(Cartridge::create(file));
-    bus.cart = cart.get();
+    bus.load(cart.get());
 }
 
 void NES::reset() {

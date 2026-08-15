@@ -12,15 +12,13 @@ NROMCart::NROMCart(const NesFile& file) {
         std::memcpy(prg_rom + 0x4000, file.prg_rom.data(), 0x4000);
 }
 
-uint8_t NROMCart::cpu_read(uint16_t addr) {
-    open_cpu_read = false;
+BusRead NROMCart::cpu_read(uint16_t addr) {
     if (addr >= 0x6000) {
         if (addr < 0x8000)
-            return prg_ram[addr - 0x6000];
-        return prg_rom[addr & 0x7fff];
+            return {prg_ram[addr - 0x6000], 0};
+        return {prg_rom[addr & 0x7fff], 0};
     }
-    open_cpu_read = true;
-    return 0;
+    return {0, 0xff};
 }
 
 void NROMCart::cpu_write(uint16_t addr, uint8_t value) {
@@ -28,12 +26,10 @@ void NROMCart::cpu_write(uint16_t addr, uint8_t value) {
         prg_ram[addr - 0x6000] = value;
 }
 
-uint8_t NROMCart::ppu_read(uint16_t addr) {
-    open_ppu_read = false;
+BusRead NROMCart::ppu_read(uint16_t addr) {
     if (addr < 0x2000)
-        return chr_rom[addr];
-    open_ppu_read = true;
-    return 0;
+        return {chr_rom[addr], 0};
+    return {0, 0xff};
 }
 
 void NROMCart::ppu_write(uint16_t, uint8_t) {

@@ -275,6 +275,30 @@ src/nes_em/cartridge/nrom_cart.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em_core.dir/build.make CMakeFiles/nes_em_core.dir/src/nes_em/cartridge/nrom_cart.cpp.s
 .PHONY : src/nes_em/cartridge/nrom_cart.cpp.s
 
+src/nes_em/controller.o: src/nes_em/controller.cpp.o
+.PHONY : src/nes_em/controller.o
+
+# target to build an object file
+src/nes_em/controller.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em_core.dir/build.make CMakeFiles/nes_em_core.dir/src/nes_em/controller.cpp.o
+.PHONY : src/nes_em/controller.cpp.o
+
+src/nes_em/controller.i: src/nes_em/controller.cpp.i
+.PHONY : src/nes_em/controller.i
+
+# target to preprocess a source file
+src/nes_em/controller.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em_core.dir/build.make CMakeFiles/nes_em_core.dir/src/nes_em/controller.cpp.i
+.PHONY : src/nes_em/controller.cpp.i
+
+src/nes_em/controller.s: src/nes_em/controller.cpp.s
+.PHONY : src/nes_em/controller.s
+
+# target to generate assembly for a file
+src/nes_em/controller.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em_core.dir/build.make CMakeFiles/nes_em_core.dir/src/nes_em/controller.cpp.s
+.PHONY : src/nes_em/controller.cpp.s
+
 src/nes_em/cpu.o: src/nes_em/cpu.cpp.o
 .PHONY : src/nes_em/cpu.o
 
@@ -421,6 +445,9 @@ help:
 	@echo "... src/nes_em/cartridge/nrom_cart.o"
 	@echo "... src/nes_em/cartridge/nrom_cart.i"
 	@echo "... src/nes_em/cartridge/nrom_cart.s"
+	@echo "... src/nes_em/controller.o"
+	@echo "... src/nes_em/controller.i"
+	@echo "... src/nes_em/controller.s"
 	@echo "... src/nes_em/cpu.o"
 	@echo "... src/nes_em/cpu.i"
 	@echo "... src/nes_em/cpu.s"

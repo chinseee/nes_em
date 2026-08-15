@@ -1,4 +1,5 @@
 #pragma once
+#include "nes_em/fwd.h"
 #include "nes_em/cpu.h"
 
 namespace nes_em {

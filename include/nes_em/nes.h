@@ -1,15 +1,15 @@
 #pragma once
+#include "nes_em/fwd.h"
 #include "nes_em/ppu.h"
 #include "nes_em/cpu.h"
 #include "nes_em/cpu_debug.h"
 #include "nes_em/bus.h"
 #include "nes_em/cartridge/cartridge.h"
-#include <memory>
+#include "nes_em/controller.h"
 
 namespace nes_em {
 
-class NES {
-public:
+struct NES {
     CPU cpu;
     PPU ppu;
     Bus bus;
@@ -20,4 +20,5 @@ public:
     void load(const NesFile&);
     void reset();
 };
+
 }
