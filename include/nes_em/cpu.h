@@ -1,8 +1,10 @@
 #pragma once
+#include "nes_em/fwd.h"
+#include "nes_em/nes_file.h"
 #include <bitset>
 #include <cstdint>
 #include <utility>
-#include "nes_em/nes_file.h"
+
 
 namespace nes_em {
 
@@ -24,27 +26,46 @@ enum class AddrMode {
 
 class CPU {
 public:
+    // p (status register) flag bit indices
+    static constexpr size_t CARRY_BIT = 0;
+    static constexpr size_t ZERO_BIT = 1;
+    static constexpr size_t INTERRUPT_DISABLE_BIT = 2;
+    static constexpr size_t DECIMAL_BIT = 3;
+    static constexpr size_t BREAK_BIT = 4;
+    static constexpr size_t UNUSED_BIT = 5;
+    static constexpr size_t OVERFLOW_BIT = 6;
+    static constexpr size_t NEGATIVE_BIT = 7;
+
+    // connections
+    PPU* ppu;
+    Bus* bus;
+
+
     // registers
     uint16_t pc;
     uint8_t a, x, y, sp;
     std::bitset<8> p;
 
-    uint8_t mem[0x10000];
-
     // temporary: simulate cpu cycles
     uint64_t cycles = 0;
 
+    // interrupts
+    bool nmi_line, nmi_line_prev; // sampled /NMI input pin, current and previous cycle
+    bool nmi_pending;             // latched on nmi_line's falling edge, cleared once serviced
+    bool irq_line;
+    bool irq_pending;
+
     CPU();
     void reset();
-    void load(const NesFile &);
 
     void exec_inst();
 
     void cycle();
+    void poll_interrupts();
 
     uint8_t inst_read();
-    uint8_t mem_read(uint16_t);
-    void mem_write(uint16_t, uint8_t);
+    uint8_t cycle_read(uint16_t);
+    void cycle_write(uint16_t, uint8_t);
     void push(uint8_t);
     uint8_t pull();
 
@@ -153,16 +174,16 @@ public:
 
     // TODO: implement last few unofficial opcodes (cringe)
     // refactoring
+
     // interrupts
+    void interrupt();
 
-protected:
-    static uint16_t unmirror_addr(uint16_t);
-
+private:
     template <void (CPU::*op)(uint16_t), AddrMode mode, bool rmw>
     void opcode_impl();
     
     template <void (CPU::*op)(uint16_t), AddrMode mode>
-    void opcode_impl();    
+    void opcode_impl();
 
     template <void (CPU::*op)(), AddrMode mode>
     void opcode_impl();
@@ -173,7 +194,6 @@ protected:
     template<size_t... Is>
     static constexpr auto make_jump_table(std::index_sequence<Is...>);
 };
-
 
 
 }

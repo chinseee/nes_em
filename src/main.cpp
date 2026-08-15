@@ -1,13 +1,8 @@
 #include <iostream>
-#include "nes_em/cpu_debug.h"
+#include "nes_client/client.h"
 
 int main(void) {
-    nes_em::DebugCPU cpu;
-    nes_em::NesFile file("nestest.nes");
-    cpu.load(file);
-    cpu.reset();
-
-    cpu.pc = 0xc000;
-    for (size_t i = 0; i < 8991; ++i)
-        cpu.exec_inst();
+    nes_client::Client c;
+    c.run();
+    return 0;
 }

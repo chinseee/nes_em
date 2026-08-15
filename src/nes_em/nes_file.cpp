@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include "nes_em/nes_file.h"
+#include <iostream>
 
 namespace nes_em {
 

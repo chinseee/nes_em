@@ -15,8 +15,31 @@ else()
     add_compile_options(-O3 -Wall -Wextra -Wpedantic -Werror -fverbose-asm)
 endif()
 
-add_executable(nes_em src/main.cpp src/cpu.cpp src/cpu_debug.cpp src/nes_file.cpp)
-target_include_directories(nes_em PRIVATE
+add_library(nes_em_core
+    src/nes_em/cartridge/cartridge.cpp
+    src/nes_em/cartridge/nrom_cart.cpp
+    src/nes_em/nes_file.cpp
+    src/nes_em/bus.cpp
+    src/nes_em/cpu.cpp 
+    src/nes_em/cpu_debug.cpp 
+    src/nes_em/nes.cpp
+    src/nes_em/ppu.cpp 
+)
+
+target_include_directories(nes_em_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_compile_options(nes_em_core PRIVATE -save-temps=obj)
+
+find_package(SDL3 REQUIRED CONFIG)
+
+add_library(nes_client src/nes_client/client.cpp)
+target_include_directories(nes_client PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(nes_client PUBLIC SDL3::SDL3)
+
+
+add_executable(nes_em src/main.cpp)
+target_link_libraries(nes_em PRIVATE nes_client nes_em_core)
 target_compile_options(nes_em PRIVATE -save-temps=obj)

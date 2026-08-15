@@ -1,14 +1,9 @@
 file(REMOVE_RECURSE
-  "/home/chenxi/source/repos/nes/bin/nes_em"
-  "/home/chenxi/source/repos/nes/bin/nes_em.pdb"
-  "CMakeFiles/nes_em.dir/src/cpu.cpp.o"
-  "CMakeFiles/nes_em.dir/src/cpu.cpp.o.d"
-  "CMakeFiles/nes_em.dir/src/cpu_debug.cpp.o"
-  "CMakeFiles/nes_em.dir/src/cpu_debug.cpp.o.d"
+  "/home/chenxi/source/repos/nes_em/bin/nes_em"
+  "/home/chenxi/source/repos/nes_em/bin/nes_em.pdb"
+  "CMakeFiles/nes_em.dir/link.d"
   "CMakeFiles/nes_em.dir/src/main.cpp.o"
   "CMakeFiles/nes_em.dir/src/main.cpp.o.d"
-  "CMakeFiles/nes_em.dir/src/nes_file.cpp.o"
-  "CMakeFiles/nes_em.dir/src/nes_file.cpp.o.d"
 )
 
 # Per-language clean rules from dependency scanning.

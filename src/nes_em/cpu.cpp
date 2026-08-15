@@ -1,8 +1,13 @@
 #include "nes_em/cpu.h"
+#include "nes_em/ppu.h"
+#include "nes_em/bus.h"
 #include <array>
 #include <random>
 #include <cstring>
-#include <random>
+
+
+#include <iostream>
+#include <iomanip>
 
 #define NES_CPU_BIN_OP_MODE(bin, op, addr_mode) \
 template <> \
@@ -24,93 +29,96 @@ CPU::CPU():
     x(0),
     y(0),
     sp(0),
-    p(0b00100100),
-    cycles(0) {
-
-}
+    p((1 << UNUSED_BIT) | (1 << INTERRUPT_DISABLE_BIT)),
+    cycles(0)
+{}
 
 void CPU::reset() {
     cycle();
-    cycle();
+    
     pc = 0xfffc;
     cycle();
+
     --sp;
     cycle();
+
     --sp;
     cycle();
+
     --sp;
-    
     uint8_t lo = inst_read();
-    p[2] = true;
+
+    p[INTERRUPT_DISABLE_BIT] = true;
     pc = lo | inst_read() << 8;
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint8_t> dist;
 
-    for (uint16_t i = 0; i < 0x0800; ++i)
-        mem[i] = dist(gen);
-    for (uint16_t i = 0x6000; i < 0x8000; ++i)
-        mem[i] = dist(gen);
+    cycle();
 }
 
-void CPU::load(const NesFile &file) {
-    size_t prg_rom_size = file.prg_rom.size();
-    if (prg_rom_size > 0x8000)
-        throw std::runtime_error("PRG-ROM too large: max size of 32768 bytes exceeded");
-    std::memcpy(mem + 0x8000, file.prg_rom.data(), prg_rom_size);
-    if (prg_rom_size <= 0x4000)
-        std::memcpy(mem + 0xc000, file.prg_rom.data(), prg_rom_size);
-}
 
 void CPU::cycle() {
+    ppu->cycle();
+    ppu->cycle();
+    ppu->cycle();
     ++cycles;
 }
 
+void CPU::poll_interrupts() {
+    if (nmi_line && !nmi_line_prev)
+        nmi_pending = true;
+
+    nmi_line_prev = nmi_line;
+
+    irq_pending = irq_line;
+}
+
 uint8_t CPU::inst_read() {
-    return mem_read(pc++);
+    uint8_t temp = cycle_read(pc++);
+    return temp;
 }
 
-uint16_t CPU::unmirror_addr(uint16_t addr) {
-    if (addr < 0x2000)
-        return addr & 0x07ff;
-    if (addr < 0x4000)
-        return (addr & 7) | 0x2000;
-    return addr;
-};
-
-uint8_t CPU::mem_read(uint16_t addr) {
+uint8_t CPU::cycle_read(uint16_t addr) {
     cycle();
-    return mem[unmirror_addr(addr)];
+    return bus->cpu_read(addr);
 }
 
-void CPU::mem_write(uint16_t addr, uint8_t value) {
+void CPU::cycle_write(uint16_t addr, uint8_t value) {
     cycle();
-    mem[unmirror_addr(addr)] = value;
+    bus->cpu_write(addr, value);
 }
 
 void CPU::push(uint8_t value) {
     cycle();
-    mem[0x100 | sp--] = value;
+    bus->cpu_write(0x100 | sp--, value);
 }
 
 uint8_t CPU::pull() {
     cycle();
-    return mem[0x100 | ++sp];
+    return bus->cpu_read(0x100 | ++sp);
 }
 
 void CPU::set_zn(uint8_t value) {
-    p[1] = value == 0;
-    p[7] = value & 0x80;
+    p[ZERO_BIT] = value == 0;
+    p[NEGATIVE_BIT] = value & (1 << NEGATIVE_BIT);
 }
 
 void CPU::branch(bool cond, uint8_t offset) {
     if (cond) {
+        // intentional bug: interrupts NOT polled if page not crossed
+        // this is the end of cycle 2 for all branch instructions.
+        // as the 2nd to last cycle for taken branches, there should
+        // be an interrupt poll just before end of cycle 2, but
+        // a hardware quirk prevents this.
         cycle();
+
         // pretty sure this is impl defined pre c++20
+        // maybe fix later
         uint16_t next_pc = pc + static_cast<int8_t>(offset);
-        if ((next_pc & 0xff00) != (pc & 0xff00))
+        
+        if ((next_pc & 0xff00) != (pc & 0xff00)) {
+            // interrupts ARE polled on page crosses.
+            poll_interrupts();
             cycle();
+        }
         pc = next_pc;
     }
 }
@@ -162,31 +170,19 @@ void CPU::opcode_impl() {
         // only used by branch instructions
         (this->*op)(pc++);
     }
-    else if constexpr (mode == AddrMode::Indirect) {
-        // only used by JMP.
-        uint8_t lo = inst_read();
-        uint8_t hi = inst_read();
-
-        uint16_t addr = mem_read(lo | hi << 8);
-        // intentional bug: page crossing is broken
-        ++lo;
-        addr |= mem_read(lo | hi << 8) << 8;
-        
-        (this->*op)(addr);
-    }
     else if constexpr (mode == AddrMode::IndirectX) {
         uint8_t ind = inst_read();
         
         cycle();
         ind += x;
 
-        uint8_t lo = mem_read(ind++);
-        (this->*op)(lo | mem_read(ind) << 8);
+        uint8_t lo = cycle_read(ind++);
+        (this->*op)(lo | cycle_read(ind) << 8);
     }
     else if constexpr (mode == AddrMode::IndirectY) {
         uint8_t ind = inst_read();
-        uint8_t lo = mem_read(ind++);
-        uint16_t addr = lo | mem_read(ind) << 8;
+        uint8_t lo = cycle_read(ind++);
+        uint16_t addr = lo | cycle_read(ind) << 8;
         if ((lo + y) & 0x100)
             cycle();
         (this->*op)(addr + y);
@@ -217,7 +213,8 @@ void CPU::opcode_impl() {
 }
 
 void CPU::LDA(uint16_t addr) {
-    a = mem_read(addr);
+    poll_interrupts();
+    a = cycle_read(addr);
     set_zn(a);
 }
 
@@ -231,7 +228,8 @@ NES_CPU_BIN_OP_MODE(0xa1, &CPU::LDA, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xb1, &CPU::LDA, AddrMode::IndirectY);
 
 void CPU::STA(uint16_t addr) {
-    mem_write(addr, a);
+    poll_interrupts();
+    cycle_write(addr, a);
 }
 
 template <>
@@ -253,8 +251,8 @@ void CPU::opcode_impl<&CPU::STA, AddrMode::AbsoluteY>() {
 template <>
 void CPU::opcode_impl<&CPU::STA, AddrMode::IndirectY>() {
     uint8_t ind = inst_read();
-    uint8_t lo = mem_read(ind++);
-    uint16_t addr = lo | mem_read(ind) << 8;
+    uint8_t lo = cycle_read(ind++);
+    uint16_t addr = lo | cycle_read(ind) << 8;
     cycle(); // always dummy read on store inst
     STA(addr + y);
 };
@@ -268,7 +266,8 @@ NES_CPU_BIN_OP_MODE(0x81, &CPU::STA, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x91, &CPU::STA, AddrMode::IndirectY);
 
 void CPU::LDX(uint16_t addr) {
-    x = mem_read(addr);
+    poll_interrupts();
+    x = cycle_read(addr);
     set_zn(x);
 }
 
@@ -279,14 +278,16 @@ NES_CPU_BIN_OP_MODE(0xae, &CPU::LDX, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE(0xbe, &CPU::LDX, AddrMode::AbsoluteY);
 
 void CPU::STX(uint16_t addr) {
-    mem_write(addr, x);
+    poll_interrupts();
+    cycle_write(addr, x);
 }
 NES_CPU_BIN_OP_MODE(0x86, &CPU::STX, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0x96, &CPU::STX, AddrMode::ZeroPageY);
 NES_CPU_BIN_OP_MODE(0x8e, &CPU::STX, AddrMode::Absolute);
 
 void CPU::LDY(uint16_t addr) {
-    y = mem_read(addr);
+    poll_interrupts();
+    y = cycle_read(addr);
     set_zn(y);
 }
 NES_CPU_BIN_OP_MODE(0xa0, &CPU::LDY, AddrMode::Immediate);
@@ -296,13 +297,15 @@ NES_CPU_BIN_OP_MODE(0xac, &CPU::LDY, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE(0xbc, &CPU::LDY, AddrMode::AbsoluteX);
 
 void CPU::STY(uint16_t addr) {
-    mem_write(addr, y);
+    poll_interrupts();
+    cycle_write(addr, y);
 }
 NES_CPU_BIN_OP_MODE(0x84, &CPU::STY, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0x94, &CPU::STY, AddrMode::ZeroPageX);
 NES_CPU_BIN_OP_MODE(0x8c, &CPU::STY, AddrMode::Absolute);
 
 void CPU::TAX() {
+    poll_interrupts();
     cycle();
     x = a;
     set_zn(x);
@@ -310,6 +313,7 @@ void CPU::TAX() {
 NES_CPU_BIN_OP_MODE(0xaa, &CPU::TAX, AddrMode::Implied);
 
 void CPU::TXA() {
+    poll_interrupts();
     cycle();
     a = x;
     set_zn(a);
@@ -317,6 +321,7 @@ void CPU::TXA() {
 NES_CPU_BIN_OP_MODE(0x8a, &CPU::TXA, AddrMode::Implied);
 
 void CPU::TAY() {
+    poll_interrupts();
     cycle();
     y = a;
     set_zn(y);
@@ -324,6 +329,7 @@ void CPU::TAY() {
 NES_CPU_BIN_OP_MODE(0xa8, &CPU::TAY, AddrMode::Implied);
 
 void CPU::TYA() {
+    poll_interrupts();
     cycle();
     a = y;
     set_zn(a);
@@ -331,10 +337,11 @@ void CPU::TYA() {
 NES_CPU_BIN_OP_MODE(0x98, &CPU::TYA, AddrMode::Implied);
 
 void CPU::ADC(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    uint16_t r = a + v + p[0];
-    p[0] = r > 0xff; // carry;
-    p[6] = (r ^ a) & (r ^ v) & 0x80; // overflow
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    uint16_t r = a + v + p[CARRY_BIT];
+    p[CARRY_BIT] = r > 0xff; // carry;
+    p[OVERFLOW_BIT] = (r ^ a) & (r ^ v) & (1 << NEGATIVE_BIT); // overflow
     a = r;
     set_zn(a);
 }
@@ -348,10 +355,11 @@ NES_CPU_BIN_OP_MODE(0x61, &CPU::ADC, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x71, &CPU::ADC, AddrMode::IndirectY);
 
 void CPU::SBC(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    uint16_t r = a + ~v + p[0];
-    p[0] = r <= 0xff; // carry
-    p[6] = (r ^ a) & (r ^ ~v) & 0x80; // overflow
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    uint16_t r = a + ~v + p[CARRY_BIT];
+    p[CARRY_BIT] = r <= 0xff; // carry
+    p[OVERFLOW_BIT] = (r ^ a) & (r ^ ~v) & (1 << NEGATIVE_BIT); // overflow
     a = r;
     set_zn(a);
 }
@@ -366,9 +374,10 @@ NES_CPU_BIN_OP_MODE(0xe1, &CPU::SBC, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xf1, &CPU::SBC, AddrMode::IndirectY);
 
 void CPU::INC(uint16_t addr) {
-    uint8_t t = mem_read(addr);
-    mem_write(addr, t++);
-    mem_write(addr, t);
+    uint8_t t = cycle_read(addr);
+    cycle_write(addr, t++);
+    poll_interrupts();
+    cycle_write(addr, t);
     set_zn(t);
 }
 NES_CPU_BIN_OP_MODE(0xe6, &CPU::INC, AddrMode::ZeroPage);
@@ -377,9 +386,10 @@ NES_CPU_BIN_OP_MODE(0xee, &CPU::INC, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE_RMW(0xfe, &CPU::INC, AddrMode::AbsoluteX);
 
 void CPU::DEC(uint16_t addr) {
-    uint8_t t = mem_read(addr);
-    mem_write(addr, t--);
-    mem_write(addr, t);
+    uint8_t t = cycle_read(addr);
+    cycle_write(addr, t--);
+    poll_interrupts();
+    cycle_write(addr, t);
     set_zn(t);
 }
 
@@ -389,6 +399,7 @@ NES_CPU_BIN_OP_MODE(0xce, &CPU::DEC, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE_RMW(0xde, &CPU::DEC, AddrMode::AbsoluteX);
 
 void CPU::INX() {
+    poll_interrupts();
     cycle();
     ++x;
     set_zn(x);
@@ -396,6 +407,7 @@ void CPU::INX() {
 NES_CPU_BIN_OP_MODE(0xe8, &CPU::INX, AddrMode::Implied);
 
 void CPU::DEX() {
+    poll_interrupts();
     cycle();
     --x;
     set_zn(x);
@@ -403,6 +415,7 @@ void CPU::DEX() {
 NES_CPU_BIN_OP_MODE(0xca, &CPU::DEX, AddrMode::Implied);
 
 void CPU::INY() {
+    poll_interrupts();
     cycle();
     ++y;
     set_zn(y);
@@ -410,6 +423,7 @@ void CPU::INY() {
 NES_CPU_BIN_OP_MODE(0xc8, &CPU::INY, AddrMode::Implied);
 
 void CPU::DEY() {
+    poll_interrupts();
     cycle();
     --y;
     set_zn(y);
@@ -417,19 +431,21 @@ void CPU::DEY() {
 NES_CPU_BIN_OP_MODE(0x88, &CPU::DEY, AddrMode::Implied);
 
 void CPU::ASL() {
+    poll_interrupts();
     cycle();
-    p[0] = a & 0x80;
+    p[CARRY_BIT] = a & (1 << NEGATIVE_BIT);
     a <<= 1;
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x0a, static_cast<void (CPU::*)()>(&CPU::ASL), AddrMode::Accumulator);
 void CPU::ASL(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
-    p[0] = v & 0x80;
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
+    p[CARRY_BIT] = v & (1 << NEGATIVE_BIT);
     v <<= 1;
     set_zn(v);
-    mem_write(addr, v);
+    poll_interrupts();
+    cycle_write(addr, v);
 }
 NES_CPU_BIN_OP_MODE(0x06, static_cast<void (CPU::*)(uint16_t)>(&CPU::ASL), AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0x16, static_cast<void (CPU::*)(uint16_t)>(&CPU::ASL), AddrMode::ZeroPageX);
@@ -437,19 +453,21 @@ NES_CPU_BIN_OP_MODE(0x0e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ASL), AddrM
 NES_CPU_BIN_OP_MODE_RMW(0x1e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ASL), AddrMode::AbsoluteX);
 
 void CPU::LSR() {
+    poll_interrupts();
     cycle();
-    p[0] = a & 0x01;
+    p[CARRY_BIT] = a & (1 << CARRY_BIT);
     a >>= 1;
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x4a, static_cast<void (CPU::*)()>(&CPU::LSR), AddrMode::Accumulator);
 void CPU::LSR(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
-    p[0] = v & 0x01;
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
+    p[CARRY_BIT] = v & (1 << CARRY_BIT);
     v >>= 1;
     set_zn(v);
-    mem_write(addr, v);
+    poll_interrupts();
+    cycle_write(addr, v);
 }
 
 NES_CPU_BIN_OP_MODE(0x46, static_cast<void (CPU::*)(uint16_t)>(&CPU::LSR), AddrMode::ZeroPage);
@@ -458,22 +476,24 @@ NES_CPU_BIN_OP_MODE(0x4e, static_cast<void (CPU::*)(uint16_t)>(&CPU::LSR), AddrM
 NES_CPU_BIN_OP_MODE_RMW(0x5e, static_cast<void (CPU::*)(uint16_t)>(&CPU::LSR), AddrMode::AbsoluteX);
 
 void CPU::ROL() {
+    poll_interrupts();
     cycle();
     uint8_t t = a << 1;
-    t |= p[0];
-    p[0] = a & 0x80;
+    t |= p[CARRY_BIT];
+    p[CARRY_BIT] = a & (1 << NEGATIVE_BIT);
     a = t;
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x2a, static_cast<void (CPU::*)()>(&CPU::ROL), AddrMode::Accumulator);
 void CPU::ROL(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
     uint8_t t = v << 1;
-    t |= p[0];
-    p[0] = v & 0x80;
+    t |= p[CARRY_BIT];
+    p[CARRY_BIT] = v & (1 << NEGATIVE_BIT);
     set_zn(t);
-    mem_write(addr, t);
+    poll_interrupts();
+    cycle_write(addr, t);
 }
 
 NES_CPU_BIN_OP_MODE(0x26, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROL), AddrMode::ZeroPage);
@@ -482,22 +502,24 @@ NES_CPU_BIN_OP_MODE(0x2e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROL), AddrM
 NES_CPU_BIN_OP_MODE_RMW(0x3e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROL), AddrMode::AbsoluteX);
 
 void CPU::ROR() {
+    poll_interrupts();
     cycle();
     uint8_t t = a >> 1;
-    t |= (p[0] << 7);
-    p[0] = a & 0x01;
+    t |= (p[CARRY_BIT] << NEGATIVE_BIT);
+    p[CARRY_BIT] = a & (1 << CARRY_BIT);
     a = t;
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x6a, static_cast<void (CPU::*)()>(&CPU::ROR), AddrMode::Accumulator);
 void CPU::ROR(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
     uint8_t t = v >> 1;
-    t |= (p[0] << 7);
-    p[0] = v & 0x01;
+    t |= (p[CARRY_BIT] << NEGATIVE_BIT);
+    p[CARRY_BIT] = v & (1 << CARRY_BIT);
     set_zn(t);
-    mem_write(addr, t);
+    poll_interrupts();
+    cycle_write(addr, t);
 }
 
 NES_CPU_BIN_OP_MODE(0x66, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROR), AddrMode::ZeroPage);
@@ -506,7 +528,8 @@ NES_CPU_BIN_OP_MODE(0x6e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROR), AddrM
 NES_CPU_BIN_OP_MODE_RMW(0x7e, static_cast<void (CPU::*)(uint16_t)>(&CPU::ROR), AddrMode::AbsoluteX);
 
 void CPU::AND(uint16_t addr) {
-    a &= mem_read(addr);
+    poll_interrupts();
+    a &= cycle_read(addr);
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x29, &CPU::AND, AddrMode::Immediate);
@@ -519,7 +542,8 @@ NES_CPU_BIN_OP_MODE(0x21, &CPU::AND, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x31, &CPU::AND, AddrMode::IndirectY);
 
 void CPU::ORA(uint16_t addr) {
-    a |= mem_read(addr);
+    poll_interrupts();
+    a |= cycle_read(addr);
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x09, &CPU::ORA, AddrMode::Immediate);
@@ -532,7 +556,8 @@ NES_CPU_BIN_OP_MODE(0x01, &CPU::ORA, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x11, &CPU::ORA, AddrMode::IndirectY);
 
 void CPU::EOR(uint16_t addr) {
-    a ^= mem_read(addr);
+    poll_interrupts();
+    a ^= cycle_read(addr);
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x49, &CPU::EOR, AddrMode::Immediate);
@@ -545,17 +570,19 @@ NES_CPU_BIN_OP_MODE(0x41, &CPU::EOR, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x51, &CPU::EOR, AddrMode::IndirectY);
 
 void CPU::BIT(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    p[1] = (a & v) == 0; 
-    p[6] = v & 0x40;
-    p[7] = v & 0x80;
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    p[ZERO_BIT] = (a & v) == 0; 
+    p[OVERFLOW_BIT] = v & (1 << OVERFLOW_BIT);
+    p[NEGATIVE_BIT] = v & (1 << NEGATIVE_BIT);
 }
 NES_CPU_BIN_OP_MODE(0x24, &CPU::BIT, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0x2c, &CPU::BIT, AddrMode::Absolute);
 
 void CPU::CMP(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    p[0] = a >= v;
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    p[CARRY_BIT] = a >= v;
     set_zn(a - v);
 }
 NES_CPU_BIN_OP_MODE(0xc9, &CPU::CMP, AddrMode::Immediate);
@@ -568,8 +595,9 @@ NES_CPU_BIN_OP_MODE(0xc1, &CPU::CMP, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xd1, &CPU::CMP, AddrMode::IndirectY);
 
 void CPU::CPX(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    p[0] = x >= v;
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    p[CARRY_BIT] = x >= v;
     set_zn(x - v);
 }
 NES_CPU_BIN_OP_MODE(0xe0, &CPU::CPX, AddrMode::Immediate);
@@ -577,8 +605,9 @@ NES_CPU_BIN_OP_MODE(0xe4, &CPU::CPX, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0xec, &CPU::CPX, AddrMode::Absolute);
 
 void CPU::CPY(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    p[0] = y >= v;
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    p[CARRY_BIT] = y >= v;
     set_zn(y - v);
 }
 NES_CPU_BIN_OP_MODE(0xc0, &CPU::CPY, AddrMode::Immediate);
@@ -586,48 +615,80 @@ NES_CPU_BIN_OP_MODE(0xc4, &CPU::CPY, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0xcc, &CPU::CPY, AddrMode::Absolute);
 
 void CPU::BCC(uint16_t addr) {
-    branch(!p[0], mem_read(addr));
+    poll_interrupts();
+    branch(!p[CARRY_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0x90, &CPU::BCC, AddrMode::Relative);
 
 void CPU::BCS(uint16_t addr) {
-    branch(p[0], mem_read(addr));
+    poll_interrupts();
+    branch(p[CARRY_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0xb0, &CPU::BCS, AddrMode::Relative);
 
 void CPU::BEQ(uint16_t addr) {
-    branch(p[1], mem_read(addr));
+    poll_interrupts();
+    branch(p[ZERO_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0xf0, &CPU::BEQ, AddrMode::Relative);
 
 void CPU::BNE(uint16_t addr) {
-    branch(!p[1], mem_read(addr));
+    poll_interrupts();
+    branch(!p[ZERO_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0xd0, &CPU::BNE, AddrMode::Relative);
 
 void CPU::BPL(uint16_t addr) {
-    branch(!p[7], mem_read(addr));
+    poll_interrupts();
+    branch(!p[NEGATIVE_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0x10, &CPU::BPL, AddrMode::Relative);
 
 void CPU::BMI(uint16_t addr) {
-    branch(p[7], mem_read(addr));
+    poll_interrupts();
+    branch(p[NEGATIVE_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0x30, &CPU::BMI, AddrMode::Relative);
 
 void CPU::BVC(uint16_t addr) {
-    branch(!p[6], mem_read(addr));
+    poll_interrupts();
+    branch(!p[OVERFLOW_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0x50, &CPU::BVC, AddrMode::Relative);
 
 void CPU::BVS(uint16_t addr) {
-    branch(p[6], mem_read(addr));
+    poll_interrupts();
+    branch(p[OVERFLOW_BIT], cycle_read(addr));
 }
 NES_CPU_BIN_OP_MODE(0x70, &CPU::BVS, AddrMode::Relative);
 
 void CPU::JMP(uint16_t addr) {
     pc = addr; //all cycles already accounted for
 }
+
+template <>
+void CPU::opcode_impl<&CPU::JMP, AddrMode::Absolute>() {
+    uint16_t addr = inst_read();
+    poll_interrupts();
+    addr |= inst_read() << 8;
+    JMP(addr);
+}
+
+template <>
+void CPU::opcode_impl<&CPU::JMP, AddrMode::Indirect>() {
+    // only used by JMP.
+    uint8_t lo = inst_read();
+    uint8_t hi = inst_read();
+
+    uint16_t addr = cycle_read(lo | hi << 8);
+    // intentional bug: page crossing is broken
+    ++lo;
+    poll_interrupts();
+    addr |= cycle_read(lo | hi << 8) << 8;
+
+    JMP(addr);
+}
+
 NES_CPU_BIN_OP_MODE(0x4c, &CPU::JMP, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE(0x6c, &CPU::JMP, AddrMode::Indirect);
 
@@ -635,13 +696,14 @@ void CPU::JSR(uint16_t addr) {
     uint16_t ret_addr = pc - 1;
     push(ret_addr >> 8);
     push(ret_addr & 0xff);
+    poll_interrupts();
     cycle();
     pc = addr;   
 }
 NES_CPU_BIN_OP_MODE(0x20, &CPU::JSR, AddrMode::Absolute);
 
 void CPU::RTS() {
-    mem_read(pc);
+    cycle_read(pc);
 
     uint8_t lo = pull();
     uint8_t hi = pull();
@@ -653,6 +715,7 @@ void CPU::RTS() {
     pc &= 0x00ff;
     pc |= hi << 8;
 
+    poll_interrupts();
     cycle();
     ++pc;
 }
@@ -660,52 +723,85 @@ NES_CPU_BIN_OP_MODE(0x60, &CPU::RTS, AddrMode::Implied);
 
 void CPU::BRK() {
     inst_read();
-    
+
     push(pc >> 8);
-    p[2] = true;
-    p[4] = true;
-    
     push(pc & 0xff);
 
-    push(p.to_ulong());
+    // this line is the end of cycle 4 and start of cycle 5:
+    push(p.to_ulong() | (1 << BREAK_BIT)); // BRK pushes status with B set
 
-    uint8_t lo = mem_read(0xfffe);
+    // same hijacking as interrupt(): the vector isn't chosen until right
+    // after the status push, so a pending NMI can hijack a BRK in flight
+    bool nmi = nmi_pending;
+    nmi_pending = false;
+
+    p[INTERRUPT_DISABLE_BIT] = true;
+
+    uint16_t vector = nmi ? 0xfffa : 0xfffe;
+
+    // end of cycle 5
+    uint8_t lo = cycle_read(vector);
     pc &= 0xff00;
     pc |= lo;
-    
-    uint8_t hi = mem_read(0xffff);
+    uint8_t hi = cycle_read(vector + 1);
     pc &= 0x00ff;
-    pc |= hi;
+    pc |= hi << 8;
 }
 NES_CPU_BIN_OP_MODE(0x00, &CPU::BRK, AddrMode::Implied);
 
 void CPU::RTI() {
-    mem_read(pc);
+    cycle_read(pc);
 
     uint8_t new_p = pull();
 
     uint8_t lo = pull();
-    p = new_p | 0x20;
+    p = new_p | (1 << UNUSED_BIT);
 
     uint8_t hi = pull();
     pc &= 0xff00;
     pc |= lo;
 
+    poll_interrupts();
     cycle();
     pc &= 0x00ff;
     pc |= hi << 8;
 }
 NES_CPU_BIN_OP_MODE(0x40, &CPU::RTI, AddrMode::Implied);
 
+void CPU::interrupt() {
+    cycle();
+
+    push(pc >> 8);
+    push(pc & 0xff);
+    push(p.to_ulong() & ~(1 << BREAK_BIT));
+
+    bool nmi = nmi_pending;
+    nmi_pending = false;
+
+    p[INTERRUPT_DISABLE_BIT] = true;
+
+    uint16_t vector = nmi ? 0xfffa : 0xfffe;
+    uint8_t lo = cycle_read(vector);
+    pc &= 0xff00;
+    pc |= lo;
+    uint8_t hi = cycle_read(vector + 1);
+    pc &= 0x00ff;
+    pc |= hi << 8;
+
+    cycle();
+}
+
 void CPU::PHA() {
-    mem_read(pc);
+    cycle_read(pc);
+    poll_interrupts();
     push(a);
 }
 NES_CPU_BIN_OP_MODE(0x48, &CPU::PHA, AddrMode::Implied);
 
 void CPU::PLA() {
-    mem_read(pc);
+    cycle_read(pc);
     uint8_t v = pull();
+    poll_interrupts();
     cycle();
     a = v;
     set_zn(a);
@@ -713,26 +809,30 @@ void CPU::PLA() {
 NES_CPU_BIN_OP_MODE(0x68, &CPU::PLA, AddrMode::Implied);
 
 void CPU::PHP() {
-    mem_read(pc);
-    push(p.to_ulong() | 0x10);
+    cycle_read(pc);
+    poll_interrupts();
+    push(p.to_ulong() | (1 << BREAK_BIT));
 }
 NES_CPU_BIN_OP_MODE(0x08, &CPU::PHP, AddrMode::Implied);
 
 void CPU::PLP() {
-    mem_read(pc);
+    cycle_read(pc);
     uint8_t v = pull();
+    poll_interrupts();
     cycle();
-    p = (v & 0xef) | 0x20;
+    p = (v & ~(1 << BREAK_BIT)) | (1 << UNUSED_BIT);
 }
 NES_CPU_BIN_OP_MODE(0x28, &CPU::PLP, AddrMode::Implied);
 
 void CPU::TXS() {
+    poll_interrupts();
     cycle();
     sp = x;
 }
 NES_CPU_BIN_OP_MODE(0x9a, &CPU::TXS, AddrMode::Implied);
 
 void CPU::TSX() {
+    poll_interrupts();
     cycle();
     x = sp;
     set_zn(x);
@@ -740,48 +840,56 @@ void CPU::TSX() {
 NES_CPU_BIN_OP_MODE(0xba, &CPU::TSX, AddrMode::Implied);
 
 void CPU::CLC() {
+    poll_interrupts();
     cycle();
-    p[0] = false;
+    p[CARRY_BIT] = false;
 }
 NES_CPU_BIN_OP_MODE(0x18, &CPU::CLC, AddrMode::Implied);
 
 void CPU::SEC() {
+    poll_interrupts();
     cycle();
-    p[0] = true;
+    p[CARRY_BIT] = true;
 }
 NES_CPU_BIN_OP_MODE(0x38, &CPU::SEC, AddrMode::Implied);
 
 void CPU::CLI() {
+    poll_interrupts();
     cycle();
-    p[2] = false;
+    p[INTERRUPT_DISABLE_BIT] = false;
 }
 NES_CPU_BIN_OP_MODE(0x58, &CPU::CLI, AddrMode::Implied);
 
 void CPU::SEI() {
+    poll_interrupts();
     cycle();
-    p[2] = true;
+    p[INTERRUPT_DISABLE_BIT] = true;
 }
 NES_CPU_BIN_OP_MODE(0x78, &CPU::SEI, AddrMode::Implied);
 
 void CPU::CLD() {
+    poll_interrupts();
     cycle();
-    p[3] = false;
+    p[DECIMAL_BIT] = false;
 }
 NES_CPU_BIN_OP_MODE(0xd8, &CPU::CLD, AddrMode::Implied);
 
 void CPU::SED() {
+    poll_interrupts();
     cycle();
-    p[3] = true;
+    p[DECIMAL_BIT] = true;
 }
 NES_CPU_BIN_OP_MODE(0xf8, &CPU::SED, AddrMode::Implied);
 
 void CPU::CLV() {
+    poll_interrupts();
     cycle();
-    p[6] = false;
+    p[OVERFLOW_BIT] = false;
 }
 NES_CPU_BIN_OP_MODE(0xb8, &CPU::CLV, AddrMode::Implied);
 
 void CPU::NOP() {
+    poll_interrupts();
     cycle();
     return;
 }
@@ -793,6 +901,7 @@ NES_CPU_BIN_OP_MODE(0x7a, static_cast<void (CPU::*)()>(&CPU::NOP), AddrMode::Imp
 NES_CPU_BIN_OP_MODE(0xda, static_cast<void (CPU::*)()>(&CPU::NOP), AddrMode::Implied);
 NES_CPU_BIN_OP_MODE(0xfa, static_cast<void (CPU::*)()>(&CPU::NOP), AddrMode::Implied);
 void CPU::NOP(uint16_t) {
+    poll_interrupts();
     cycle();
     return;
 }
@@ -819,42 +928,47 @@ NES_CPU_BIN_OP_MODE(0xdc, static_cast<void (CPU::*)(uint16_t)>(&CPU::NOP), AddrM
 NES_CPU_BIN_OP_MODE(0xfc, static_cast<void (CPU::*)(uint16_t)>(&CPU::NOP), AddrMode::AbsoluteX);
 
 void CPU::ALR(uint16_t addr) {
-    a &= mem_read(addr);
-    p[0] = a & 0x01;
+    poll_interrupts();
+    a &= cycle_read(addr);
+    p[CARRY_BIT] = a & (1 << CARRY_BIT);
     a >>= 1;
     set_zn(a);
 }
 NES_CPU_BIN_OP_MODE(0x4b, &CPU::ALR, AddrMode::Immediate);
 
 void CPU::ANC(uint16_t addr) {
-    a &= mem_read(addr);
+    poll_interrupts();
+    a &= cycle_read(addr);
     set_zn(a);
-    p[0] = p[7];
+    p[CARRY_BIT] = p[NEGATIVE_BIT];
 }
 NES_CPU_BIN_OP_MODE(0x0b, &CPU::ANC, AddrMode::Immediate);
 
 void CPU::ARR(uint16_t addr) {
-    a &= mem_read(addr);
+    poll_interrupts();
+    a &= cycle_read(addr);
     uint8_t t = a >> 1;
-    t |= (p[0] << 7);
-    p[0] = a & 0x01;
+    t |= (p[CARRY_BIT] << NEGATIVE_BIT);
+    p[CARRY_BIT] = a & (1 << CARRY_BIT);
     a = t;
     set_zn(a);
-    p[0] = a & 0x20;
-    p[6] = (a & 0x20) ^ (a & 0x10);
+    p[CARRY_BIT] = a & (1 << UNUSED_BIT);
+    p[OVERFLOW_BIT] = (a & (1 << UNUSED_BIT)) ^ (a & (1 << BREAK_BIT));
 }
 NES_CPU_BIN_OP_MODE(0x6b, &CPU::ARR, AddrMode::Immediate);
 
 void CPU::AXS(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    p[0] = (a & x) >= v;
+    poll_interrupts();
+    uint8_t v = cycle_read(addr);
+    p[CARRY_BIT] = (a & x) >= v;
     x = (a & x) - v;
     set_zn(x);
 }
 NES_CPU_BIN_OP_MODE(0xcb, &CPU::AXS, AddrMode::Immediate);
 
 void CPU::LAX(uint16_t addr) {
-    a = mem_read(addr);
+    poll_interrupts();
+    a = cycle_read(addr);
     x = a;
     set_zn(x);
 }
@@ -866,7 +980,8 @@ NES_CPU_BIN_OP_MODE(0xa3, &CPU::LAX, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xb3, &CPU::LAX, AddrMode::IndirectY);
 
 void CPU::SAX(uint16_t addr) {
-    mem_write(addr, a & x);
+    poll_interrupts();
+    cycle_write(addr, a & x);
 }
 NES_CPU_BIN_OP_MODE(0x87, &CPU::SAX, AddrMode::ZeroPage);
 NES_CPU_BIN_OP_MODE(0x97, &CPU::SAX, AddrMode::ZeroPageY);
@@ -874,10 +989,11 @@ NES_CPU_BIN_OP_MODE(0x8f, &CPU::SAX, AddrMode::Absolute);
 NES_CPU_BIN_OP_MODE(0x83, &CPU::SAX, AddrMode::IndirectX);
 
 void CPU::DCP(uint16_t addr) {
-    uint8_t t = mem_read(addr);
-    mem_write(addr, t--);
-    mem_write(addr, t);
-    p[0] = a >= t;
+    uint8_t t = cycle_read(addr);
+    cycle_write(addr, t--);
+    poll_interrupts();
+    cycle_write(addr, t);
+    p[CARRY_BIT] = a >= t;
     set_zn(a - t);
 }
 NES_CPU_BIN_OP_MODE(0xc7, &CPU::DCP, AddrMode::ZeroPage);
@@ -889,12 +1005,13 @@ NES_CPU_BIN_OP_MODE(0xc3, &CPU::DCP, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xd3, &CPU::DCP, AddrMode::IndirectY);
 
 void CPU::ISC(uint16_t addr) {
-    uint8_t t = mem_read(addr);
-    mem_write(addr, t++);
-    mem_write(addr, t);
-    uint16_t r = a + ~t + p[0];
-    p[0] = r <= 0xff; // carry
-    p[6] = (r ^ a) & (r ^ ~t) & 0x80; // overflow
+    uint8_t t = cycle_read(addr);
+    cycle_write(addr, t++);
+    poll_interrupts();
+    cycle_write(addr, t);
+    uint16_t r = a + ~t + p[CARRY_BIT];
+    p[CARRY_BIT] = r <= 0xff; // carry
+    p[OVERFLOW_BIT] = (r ^ a) & (r ^ ~t) & (1 << NEGATIVE_BIT); // overflow
     a = r;
     set_zn(a);
 }
@@ -907,13 +1024,14 @@ NES_CPU_BIN_OP_MODE(0xe3, &CPU::ISC, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0xf3, &CPU::ISC, AddrMode::IndirectY);
 
 void CPU::RLA(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
     uint8_t t = v << 1;
-    t |= p[0];
-    p[0] = v & 0x80;
+    t |= p[CARRY_BIT];
+    p[CARRY_BIT] = v & (1 << NEGATIVE_BIT);
     set_zn(t);
-    mem_write(addr, t);
+    poll_interrupts();
+    cycle_write(addr, t);
     a &= t;
     set_zn(a);
 }
@@ -926,16 +1044,17 @@ NES_CPU_BIN_OP_MODE(0x23, &CPU::RLA, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x33, &CPU::RLA, AddrMode::IndirectY);
 
 void CPU::RRA(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
     uint8_t t = v >> 1;
-    t |= (p[0] << 7);
-    p[0] = v & 0x01;
+    t |= (p[CARRY_BIT] << NEGATIVE_BIT);
+    p[CARRY_BIT] = v & (1 << CARRY_BIT);
     set_zn(t);
-    mem_write(addr, t);
-    uint16_t r = a + t + p[0];
-    p[0] = r > 0xff; // carry;
-    p[6] = (r ^ a) & (r ^ t) & 0x80; // overflow
+    poll_interrupts();
+    cycle_write(addr, t);
+    uint16_t r = a + t + p[CARRY_BIT];
+    p[CARRY_BIT] = r > 0xff; // carry;
+    p[OVERFLOW_BIT] = (r ^ a) & (r ^ t) & (1 << NEGATIVE_BIT); // overflow
     a = r;
     set_zn(a);
 }
@@ -948,12 +1067,13 @@ NES_CPU_BIN_OP_MODE(0x63, &CPU::RRA, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x73, &CPU::RRA, AddrMode::IndirectY);
 
 void CPU::SLO(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
-    p[0] = v & 0x80;
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
+    p[CARRY_BIT] = v & (1 << NEGATIVE_BIT);
     v <<= 1;
     set_zn(v);
-    mem_write(addr, v);
+    poll_interrupts();
+    cycle_write(addr, v);
     a |= v;
     set_zn(a);
 }
@@ -966,12 +1086,13 @@ NES_CPU_BIN_OP_MODE(0x03, &CPU::SLO, AddrMode::IndirectX);
 NES_CPU_BIN_OP_MODE(0x13, &CPU::SLO, AddrMode::IndirectY);
 
 void CPU::SRE(uint16_t addr) {
-    uint8_t v = mem_read(addr);
-    mem_write(addr, v);
-    p[0] = v & 0x01;
+    uint8_t v = cycle_read(addr);
+    cycle_write(addr, v);
+    p[CARRY_BIT] = v & (1 << CARRY_BIT);
     v >>= 1;
     set_zn(v);
-    mem_write(addr, v);
+    poll_interrupts();
+    cycle_write(addr, v);
     a ^= v;
     set_zn(a);
 }
@@ -991,8 +1112,14 @@ constexpr auto CPU::make_jump_table(std::index_sequence<Is...>) {
 void CPU::exec_inst() {
     static constexpr auto jump_table = CPU::make_jump_table(std::make_index_sequence<0x100>{});
 
-    uint8_t inst = inst_read();
+    if (nmi_pending || (!p[INTERRUPT_DISABLE_BIT] && irq_pending)) {
+        interrupt();
+        return;
+    }
+
+    uint8_t inst = bus->cpu_read(pc++);
     (this->*(jump_table[inst]))();
+    cycle();
 }
 
 } // namespace nes_em
