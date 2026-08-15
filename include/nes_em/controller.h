@@ -7,7 +7,7 @@ class Controller {
     std::mutex mtx;
     bool connected;
     bool s;
-    uint8_t input;
+    uint8_t input, input_buf;
 
 public:
     static constexpr size_t BTN_A = 0;

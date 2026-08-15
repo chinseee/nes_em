@@ -2,15 +2,18 @@
 #include "nes_client/palettes/2C02_G_U_wiki.pal.h"
 #include "nes_em/nes.h"
 #include "nes_em/nes_file.h"
+#include "nes_em/controller.h"
 #include <iostream>
 #include <cstdint>
+#include <bitset>
 #include <utility>
 #include <thread>
 
 namespace nes_client {
 
 Client::Client():
-    nes(std::make_unique<nes_em::NES>())
+    nes(std::make_unique<nes_em::NES>()),
+    sdl_ticks(0)
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
@@ -33,6 +36,7 @@ Client::Client():
     nes_pixels = static_cast<uint8_t*>(SDL_malloc(WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(uint8_t)));
 
     nes_em::NesFile rom{"nestest.nes"};
+    nes->bus.set_controller_connected(0, true);
     nes->ppu.add_listener(this);
     nes->ppu.output = nes_pixels;
     nes->load(rom);
@@ -53,14 +57,17 @@ Client::~Client() {
 void Client::on_ppu_cycle(const nes_em::PPU& ppu) {
     if (ppu.scanline == 241 && ppu.dot == 1) {
         frame_ready = true; // hack for now. fix later
+        if (sdl_ticks != 0) {
+            SDL_Delay(1000 / 60.0988 - (SDL_GetTicks() - sdl_ticks));
+        }   
+        sdl_ticks = SDL_GetTicks();
+        //std::cout << sdl_ticks << std::endl;
     }
 }
 
 void Client::run_engine() {
     while (running) {
         nes->cpu.exec_inst();
-        if (nes->cpu.cycles > 100000000)
-            running = false;
     }
 }
 
@@ -76,6 +83,24 @@ void Client::run() {
                 break;
             }
         }
+
+        SDL_PumpEvents(); 
+
+        std::bitset<8> input;
+        const bool *keystate = SDL_GetKeyboardState(NULL);
+        
+        input[nes_em::Controller::BTN_A]  = keystate[SDL_SCANCODE_X];
+        input[nes_em::Controller::BTN_B]  = keystate[SDL_SCANCODE_Z];
+        input[nes_em::Controller::SELECT] = keystate[SDL_SCANCODE_C];
+        input[nes_em::Controller::START]  = keystate[SDL_SCANCODE_V];
+        input[nes_em::Controller::UP]     = keystate[SDL_SCANCODE_UP];
+        input[nes_em::Controller::DOWN]   = keystate[SDL_SCANCODE_DOWN];
+        input[nes_em::Controller::LEFT]   = keystate[SDL_SCANCODE_LEFT];
+        input[nes_em::Controller::RIGHT]  = keystate[SDL_SCANCODE_RIGHT];
+
+        //std::cout << input.to_ullong() << std::endl;
+        nes->bus.set_controller_input(0, input.to_ulong());
+
 
         if (frame_ready) {
             frame_ready = false;

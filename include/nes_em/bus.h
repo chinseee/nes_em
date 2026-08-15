@@ -24,7 +24,8 @@ public:
     void build(NES*);
     void load(Cartridge*);
     void reset();
-    void update_controller_input(size_t, uint8_t);
+    void set_controller_input(size_t, uint8_t);
+    void set_controller_connected(size_t, bool);
 
     uint8_t cpu_read(uint16_t);
     void cpu_write(uint16_t, uint8_t);

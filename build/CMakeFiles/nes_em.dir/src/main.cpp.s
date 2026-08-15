@@ -27,11 +27,11 @@ main:
 	pushq	%rbx	#
 	.cfi_def_cfa_offset 24
 	.cfi_offset 3, -24
-	subq	$88, %rsp	#,
-	.cfi_def_cfa_offset 112
+	subq	$104, %rsp	#,
+	.cfi_def_cfa_offset 128
 # /home/chenxi/source/repos/nes/src/main.cpp:4: int main(void) {
 	movq	%fs:40, %rax	# MEM[(<address-space-1> long unsigned int *)40B], tmp95
-	movq	%rax, 72(%rsp)	# tmp95, D.120799
+	movq	%rax, 88(%rsp)	# tmp95, D.120801
 	xorl	%eax, %eax	# tmp95
 # /home/chenxi/source/repos/nes/src/main.cpp:5:     nes_client::Client c;
 	movq	%rsp, %rbx	#, tmp93
@@ -47,10 +47,10 @@ main:
 # /home/chenxi/source/repos/nes/src/main.cpp:8: }
 	movq	%rbx, %rdi	# tmp93,
 	call	_ZN10nes_client6ClientD1Ev@PLT	#
-	movq	72(%rsp), %rax	# D.120799, tmp96
+	movq	88(%rsp), %rax	# D.120801, tmp96
 	subq	%fs:40, %rax	# MEM[(<address-space-1> long unsigned int *)40B], tmp96
 	jne	.L9	#,
-	addq	$88, %rsp	#,
+	addq	$104, %rsp	#,
 	.cfi_remember_state
 	.cfi_def_cfa_offset 24
 	xorl	%eax, %eax	#
@@ -93,12 +93,12 @@ main:
 main.cold:
 .LFSB4717:
 .L2:
-	.cfi_def_cfa_offset 112
+	.cfi_def_cfa_offset 128
 	.cfi_offset 3, -24
 	.cfi_offset 6, -16
 	movq	%rbx, %rdi	# tmp93,
 	call	_ZN10nes_client6ClientD1Ev@PLT	#
-	movq	72(%rsp), %rax	# D.120799, tmp97
+	movq	88(%rsp), %rax	# D.120801, tmp97
 	subq	%fs:40, %rax	# MEM[(<address-space-1> long unsigned int *)40B], tmp97
 	jne	.L10	#,
 	movq	%rbp, %rdi	# tmp90,

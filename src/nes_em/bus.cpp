@@ -30,9 +30,14 @@ void Bus::reset() {
         cpu_ram[i] = dist(gen);
 }
 
-void Bus::update_controller_input(size_t idx, uint8_t input) {
+void Bus::set_controller_input(size_t idx, uint8_t input) {
     if (idx < 2)
         controls[idx].update_input(input);
+}
+
+void Bus::set_controller_connected(size_t idx, bool connected) {
+    if (idx < 2)
+        controls[idx].set_connected(connected);
 }
 
 uint8_t Bus::cpu_read(uint16_t addr) {

@@ -79607,7 +79607,6 @@ class Client: public nes_em::PPUListener {
     static constexpr int32_t WINDOW_WIDTH = 341;
     static constexpr int32_t WINDOW_HEIGHT = 262;
 
-public:
     std::unique_ptr<nes_em::NES> nes;
     SDL_Window* window;
     SDL_Renderer* renderer;
@@ -79618,6 +79617,9 @@ public:
     std::atomic<bool> running;
     std::atomic<bool> frame_ready;
 
+    uint64_t sdl_ticks;
+
+public:
     Client();
     ~Client();
 
