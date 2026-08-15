@@ -1,1 +1,1 @@
-/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/nes_em.dir/link.d CMakeFiles/nes_em.dir/src/main.cpp.o -o /home/chenxi/source/repos/nes_em/bin/nes_em  -Wl,-rpath,/usr/local/lib libnes_client.a libnes_em_core.a /usr/local/lib/libSDL3.so.0.5.0
+/usr/bin/c++ CMakeFiles/nes_em.dir/src/main.cpp.o -o /home/chenxi/source/repos/nes/bin/nes_em  -Wl,-rpath,/usr/local/lib libnes_client.a libnes_em_core.a /usr/local/lib/libSDL3.so.0.5.0 

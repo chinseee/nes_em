@@ -1,5 +1,5 @@
 CMakeFiles/nes_em.dir/src/main.cpp.o: \
- /home/chenxi/source/repos/nes_em/src/main.cpp /usr/include/stdc-predef.h \
+ /home/chenxi/source/repos/nes/src/main.cpp /usr/include/stdc-predef.h \
  /usr/include/c++/13/iostream /usr/include/c++/13/bits/requires_hosted.h \
  /usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h \
  /usr/include/x86_64-linux-gnu/c++/13/bits/os_defines.h \
@@ -162,9 +162,9 @@ CMakeFiles/nes_em.dir/src/main.cpp.o: \
  /usr/include/c++/13/bits/basic_ios.tcc \
  /usr/include/c++/13/bits/ostream.tcc /usr/include/c++/13/istream \
  /usr/include/c++/13/bits/istream.tcc \
- /home/chenxi/source/repos/nes_em/include/nes_client/client.h \
- /home/chenxi/source/repos/nes_em/include/nes_em/listeners.h \
- /home/chenxi/source/repos/nes_em/include/nes_em/fwd.h \
+ /home/chenxi/source/repos/nes/include/nes_client/client.h \
+ /home/chenxi/source/repos/nes/include/nes_em/listeners.h \
+ /home/chenxi/source/repos/nes/include/nes_em/fwd.h \
  /usr/local/include/SDL3/SDL.h /usr/local/include/SDL3/SDL_stdinc.h \
  /usr/local/include/SDL3/SDL_platform_defines.h /usr/include/string.h \
  /usr/include/strings.h \
@@ -256,4 +256,4 @@ CMakeFiles/nes_em.dir/src/main.cpp.o: \
  /usr/include/c++/13/bits/ranges_uninitialized.h \
  /usr/include/c++/13/bits/ranges_algobase.h \
  /usr/include/c++/13/pstl/glue_memory_defs.h \
- /usr/include/c++/13/pstl/execution_defs.h
+ /usr/include/c++/13/pstl/execution_defs.h /usr/include/c++/13/atomic

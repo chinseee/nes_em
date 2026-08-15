@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cstdint>
 #include <utility>
+#include <thread>
 
 namespace nes_client {
 
@@ -51,26 +52,42 @@ Client::~Client() {
 
 void Client::on_ppu_cycle(const nes_em::PPU& ppu) {
     if (ppu.scanline == 241 && ppu.dot == 1) {
-        SDL_UpdateTexture(nes_texture, NULL, nes_pixels, WINDOW_WIDTH * sizeof(uint8_t));
-        SDL_RenderClear(renderer);
-        SDL_RenderTexture(renderer, nes_texture, NULL, NULL);
+        frame_ready = true; // hack for now. fix later
+    }
+}
 
-        SDL_RenderPresent(renderer);
+void Client::run_engine() {
+    while (running) {
+        nes->cpu.exec_inst();
+        if (nes->cpu.cycles > 100000000)
+            running = false;
     }
 }
 
 void Client::run() {
-    bool isRunning = true;
+    running = true;
+    std::thread engine_thread(&Client::run_engine, this);
+
     SDL_Event event;
-    while (isRunning) {
+    while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
-                isRunning = false;
+                running = false;
+                break;
             }
         }
-        
-        nes->cpu.exec_inst();
+
+        if (frame_ready) {
+            frame_ready = false;
+            SDL_UpdateTexture(nes_texture, NULL, nes_pixels, WINDOW_WIDTH * sizeof(uint8_t));
+            SDL_RenderClear(renderer);
+            SDL_RenderTexture(renderer, nes_texture, NULL, NULL);
+
+            SDL_RenderPresent(renderer);
+        }
     }
+
+    engine_thread.join();
 }
 
 }

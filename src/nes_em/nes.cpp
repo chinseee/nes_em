@@ -20,6 +20,7 @@ void NES::load(const NesFile& file) {
 }
 
 void NES::reset() {
+    bus.reset();
     ppu.reset();
     cpu.reset();
 } 

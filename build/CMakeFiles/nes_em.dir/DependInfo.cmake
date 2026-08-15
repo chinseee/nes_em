@@ -8,8 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/chenxi/source/repos/nes_em/src/main.cpp" "CMakeFiles/nes_em.dir/src/main.cpp.o" "gcc" "CMakeFiles/nes_em.dir/src/main.cpp.o.d"
-  "" "/home/chenxi/source/repos/nes_em/bin/nes_em" "gcc" "CMakeFiles/nes_em.dir/link.d"
+  "/home/chenxi/source/repos/nes/src/main.cpp" "CMakeFiles/nes_em.dir/src/main.cpp.o" "gcc" "CMakeFiles/nes_em.dir/src/main.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

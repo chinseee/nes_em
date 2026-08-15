@@ -1,7 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/chenxi/source/repos/nes_em/bin/nes_em"
-  "/home/chenxi/source/repos/nes_em/bin/nes_em.pdb"
-  "CMakeFiles/nes_em.dir/link.d"
+  "/home/chenxi/source/repos/nes/bin/nes_em"
+  "/home/chenxi/source/repos/nes/bin/nes_em.pdb"
   "CMakeFiles/nes_em.dir/src/main.cpp.o"
   "CMakeFiles/nes_em.dir/src/main.cpp.o.d"
 )

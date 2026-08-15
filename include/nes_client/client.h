@@ -4,6 +4,7 @@
 #include <SDL3/SDL_main.h>
 #include <cstdint>
 #include <memory>
+#include <atomic>
 
 
 namespace nes_client {
@@ -20,11 +21,15 @@ public:
     SDL_Palette* nes_palette;
     SDL_Texture* nes_texture;
     uint8_t* nes_pixels;
+    std::atomic<bool> running;
+    std::atomic<bool> frame_ready;
 
     Client();
     ~Client();
 
     void on_ppu_cycle(const nes_em::PPU&);
+    void run_engine();
     void run();
+
 };
 }

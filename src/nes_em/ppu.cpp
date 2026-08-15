@@ -331,6 +331,7 @@ uint8_t PPU::cpu_read(uint16_t addr) {
     }
     default:
         // write-only registers return whatever was last driven on the bus
+        // TODO: remove ppu's io_bus member, add open_read member and move open bus behavior to Bus class
         return io_bus;
     }
 }

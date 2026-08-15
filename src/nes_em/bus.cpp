@@ -82,6 +82,7 @@ uint8_t Bus::ppu_read(uint16_t addr) {
 }
 
 void Bus::ppu_write(uint16_t addr, uint8_t value) {
+    ppu_data = value;
     if (addr < 0x2000) {
         cart->ppu_write(addr, value);
     }
