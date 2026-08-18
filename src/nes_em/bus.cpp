@@ -51,9 +51,10 @@ uint8_t Bus::cpu_read() {
 
     if (cpu_addr < 0x4000) {
         BusRead read = ppu->cpu_read(cpu_addr);
-    
+        
         ppu_io_latch &= read.open_bus_mask;
         ppu_io_latch |= (read.value & ~read.open_bus_mask);
+
         return ppu_io_latch;
     }
         
@@ -72,7 +73,8 @@ void Bus::cpu_write() {
     if (cpu_addr < 0x2000) {
         cpu_ram[cpu_addr & 0x7ff] = cpu_data;
     } 
-    else if (cpu_addr < 0x4000) { 
+    else if (cpu_addr < 0x4000) {
+        ppu_io_latch = cpu_data;
         ppu->cpu_write(cpu_addr, cpu_data);
     }
     else if (cpu_addr < 0x4018) {
@@ -123,7 +125,11 @@ uint8_t Bus::ppu_read(uint16_t addr) {
         ppu_data = vram[unmirror_ppu_addr(addr)];
     }
     else if (addr < 0x4000) {
-        ppu_data = palette_idxs[addr & 0x1f];
+        addr &= 0x1f;
+        if (addr & 3)
+            ppu_data = palette_idxs[addr];
+        else
+            ppu_data = palette_idxs[addr & 0xf];
     }
     return ppu_data;
 }
@@ -137,7 +143,11 @@ void Bus::ppu_write(uint16_t addr, uint8_t value) {
         vram[unmirror_ppu_addr(addr)] = value;
     }
     else if (addr < 0x4000) {
-        palette_idxs[addr & 0x1f] = value;
+        addr &= 0x1f;
+        if (addr & 3)
+            palette_idxs[addr] = value;
+        else
+            palette_idxs[addr & 0xf] = value;
     }
 }
 

@@ -301,8 +301,6 @@ BusRead PPU::cpu_read(uint16_t addr) {
         ppustatus[VBLANK_BIT] = false; // reading clears the vblank flag
         next_ppustatus = false;
 
-        
-
         cpu->set_nmi_line(false);
     
         w = false;
@@ -316,22 +314,32 @@ BusRead PPU::cpu_read(uint16_t addr) {
     }
     case 0x7: {
         uint16_t vram_addr = v & 0x3fff;
+        v += ppuctrl[VRAM_INC_BIT] ? 32 : 1;
+
         uint8_t value;
+        uint8_t mask;
 
         if (vram_addr >= 0x3f00) {
             // palette reads are not delayed by the internal buffer
             value = bus->ppu_read(vram_addr);
+            if (ppumask[GREYSCALE_BIT])
+                value &= 0x30;
+
+            // palette reads are only 6 bits
+            mask = 0xc0;
+
             ppu_data_buffer = bus->ppu_read(vram_addr - 0x1000);
+            
         }
         else {
             value = ppu_data_buffer;
+            mask = 0;
+
             ppu_data_buffer = bus->ppu_read(vram_addr);
         }
 
-        v += ppuctrl[VRAM_INC_BIT] ? 32 : 1;
-
         ppu_data = value;
-        return {value, 0};
+        return {value, mask};
     }
     default:
         return {0, 0xff};
