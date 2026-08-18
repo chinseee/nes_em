@@ -35,7 +35,7 @@ Client::Client():
     nes_texture = SDL_CreateTextureFromSurface(renderer, nes_surface);
     nes_pixels = static_cast<uint8_t*>(SDL_malloc(WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(uint8_t)));
 
-    nes_em::NesFile rom{"AccuracyCoin.nes"};
+    nes_em::NesFile rom{"test_roms/AccuracyCoin.nes"};
     nes->bus.set_controller_connected(0, true);
     nes->ppu.add_listener(this);
     nes->ppu.output = nes_pixels;

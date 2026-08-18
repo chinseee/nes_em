@@ -766,15 +766,13 @@ NES_CPU_BIN_OP_MODE(0x60, &CPU::RTS, AddrMode::Implied);
 
 void CPU::BRK() {
     inst_read();
-
     push(pc >> 8);
     push(pc & 0xff);
-
+    push(p.to_ulong() | (1 << BREAK_BIT)); // BRK pushes status with B set
+    
     bool nmi = nmi_latch;
     nmi_latch = false;
-    // this line is the end of cycle 4 and start of cycle 5:
-    push(p.to_ulong() | (1 << BREAK_BIT)); // BRK pushes status with B set
-
+    
     p[INTERRUPT_DISABLE_BIT] = true;
 
     uint16_t vector = nmi ? 0xfffa : 0xfffe;
@@ -786,6 +784,9 @@ void CPU::BRK() {
     uint8_t hi = cpu_read(vector + 1);
     pc &= 0x00ff;
     pc |= hi << 8;
+
+    // do not poll interrupts on interrupt
+    interrupt_polling = false;
 }
 NES_CPU_BIN_OP_MODE(0x00, &CPU::BRK, AddrMode::Implied);
 
@@ -812,12 +813,12 @@ void CPU::interrupt() {
 
     push(pc >> 8);
     push(pc & 0xff);
-
+    push(p.to_ulong() & ~(1 << BREAK_BIT));
+    
+    
     bool nmi = nmi_latch;
     nmi_pending = false;
     nmi_latch = false;
-    
-    push(p.to_ulong() & ~(1 << BREAK_BIT));
 
     p[INTERRUPT_DISABLE_BIT] = true;
 
@@ -828,6 +829,9 @@ void CPU::interrupt() {
     uint8_t hi = cpu_read(vector + 1);
     pc &= 0x00ff;
     pc |= hi << 8;
+
+    // do not poll interrupts on interrupt
+    interrupt_polling = false;
 }
 
 void CPU::PHA() {
