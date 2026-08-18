@@ -7,6 +7,9 @@ std::unique_ptr<Cartridge> Cartridge::create(const NesFile& file) {
     std::unique_ptr<Cartridge> cart;
     if (file.mapper == 0)
         cart = std::make_unique<NROMCart>(file);
+    
+    if (cart.get() == nullptr)
+        throw std::runtime_error("unsupported mapping");
     return cart;
 };
 

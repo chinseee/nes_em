@@ -22,6 +22,11 @@ void PPU::reset() {
 }
 
 void PPU::cycle() {
+    if (next_ppustatus) {
+        ppustatus[VBLANK_BIT] = true;
+    }
+
+    next_ppustatus = false;
     uint8_t pixel = 0;
 
     switch (scanline) {
@@ -38,8 +43,8 @@ void PPU::cycle() {
             vblank_scanline();
         break;
     }
-
-    cpu->nmi_line = ppustatus[VBLANK_BIT] && ppuctrl[NMI_ENABLE_BIT];
+    
+    cpu->set_nmi_line(ppustatus[VBLANK_BIT] && ppuctrl[NMI_ENABLE_BIT]);
     
     if (output)
         output[scanline * 341 + dot] = pixel;
@@ -93,8 +98,8 @@ void PPU::post_render_scanline() {
 }
 
 void PPU::vblank_scanline() {
-    if (scanline == 241 && dot == 1) {
-        ppustatus[VBLANK_BIT] = true;
+    if (scanline == 241 && dot == 0) {
+        next_ppustatus = true;
     }
 }
 
@@ -289,11 +294,17 @@ void PPU::bg_fetch_cycle() {
 }
 
 BusRead PPU::cpu_read(uint16_t addr) {
-    switch (addr & 0x1f) {
+    switch (addr & 0x7) {
     case 0x2: {
         uint8_t value = ppustatus.to_ulong();
 
         ppustatus[VBLANK_BIT] = false; // reading clears the vblank flag
+        next_ppustatus = false;
+
+        
+
+        cpu->set_nmi_line(false);
+    
         w = false;
         return {value, 0x1f};
     }
@@ -328,9 +339,10 @@ BusRead PPU::cpu_read(uint16_t addr) {
 }
 
 void PPU::cpu_write(uint16_t addr, uint8_t value) {
-    switch (addr & 0x1f) {
+    switch (addr & 0x7) {
     case 0x0:
         ppuctrl = value;
+        cpu->set_nmi_line(ppustatus[VBLANK_BIT] && ppuctrl[NMI_ENABLE_BIT]);
 
         t &= 0x73ff;
         t |= (value & 0x3) << 10;
@@ -389,11 +401,11 @@ void PPU::cpu_write(uint16_t addr, uint8_t value) {
         
         v += ppuctrl[VRAM_INC_BIT] ? 32 : 1;
         break;
-    case 0x14:
-        oam_dma = value;
-        // actual 256-byte transfer from CPU memory is driven by the CPU
-        break;
     }
+}
+
+void PPU::oam_dma_write(uint8_t value) {
+    oam_dma = value;
 }
 
 void PPU::coarse_x_inc() {

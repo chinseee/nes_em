@@ -14,6 +14,7 @@ Bus::Bus():
 {}
 
 void Bus::build(NES* nes) {
+    cpu = &nes->cpu;
     ppu = &nes->ppu;
 }
 
@@ -40,46 +41,55 @@ void Bus::set_controller_connected(size_t idx, bool connected) {
         controls[idx].set_connected(connected);
 }
 
-uint8_t Bus::cpu_read(uint16_t addr) {
-    if (addr < 0x2000) {
-        cpu_data = cpu_ram[addr & 0x7ff];
+uint8_t Bus::cpu_read() {
+    is_cpu_read = true;
+    if (cpu_addr < 0x2000) {
+        cpu_data = cpu_ram[cpu_addr & 0x7ff];
         return cpu_data;
     }
     BusRead read;
 
-    if (addr < 0x4000)
-        read = ppu->cpu_read((addr & 7) | 0x2000);
-    else if (addr == 0x4016 || addr == 0x4017)
-        read = controls[addr & 1].cpu_read();
+    if (cpu_addr < 0x4000) {
+        BusRead read = ppu->cpu_read(cpu_addr);
+    
+        ppu_io_latch &= read.open_bus_mask;
+        ppu_io_latch |= (read.value & ~read.open_bus_mask);
+        return ppu_io_latch;
+    }
+        
+    if (cpu_addr == 0x4016 || cpu_addr == 0x4017)
+        read = controls[cpu_addr & 1].cpu_read();
     else
-        read = cart->cpu_read(addr);
+        read = cart->cpu_read(cpu_addr);
 
     cpu_data &= read.open_bus_mask;
     cpu_data |= (read.value & ~read.open_bus_mask);
     return cpu_data;
 }
 
-void Bus::cpu_write(uint16_t addr, uint8_t value) {
-    cpu_data = value;
-    if (addr < 0x2000) {
-        cpu_ram[addr & 0x7ff] = value;
+void Bus::cpu_write() {
+    is_cpu_read = false;
+    if (cpu_addr < 0x2000) {
+        cpu_ram[cpu_addr & 0x7ff] = cpu_data;
     } 
-    else if (addr < 0x4000) {
-        ppu->cpu_write((addr & 7) | 0x2000, value);
+    else if (cpu_addr < 0x4000) { 
+        ppu->cpu_write(cpu_addr, cpu_data);
     }
-    else if (addr < 0x4018) {
-        switch (addr & 0x1f) {
-        case 0x14:
-            ppu->cpu_write(addr, value);
-            break;
+    else if (cpu_addr < 0x4018) {
+        switch (cpu_addr & 0x1f) {
+        // case 0x14:
+        //     cpu->oam_dma_addr = cpu_data << 8;
+        //     cpu->oam_dma_state = 512;
+        //     ppu->cpu_write(cpu_addr, cpu_data);
+        //     break;
         case 0x16:
-            controls[0].cpu_write(value);
-            controls[1].cpu_write(value);
+            controls[0].cpu_write(cpu_data);
+            controls[1].cpu_write(cpu_data);
             break;
         }
     }
     else {
-        cart->cpu_write(addr, value);
+        cart->cpu_write(cpu_addr, cpu_data);
     }
 }
 

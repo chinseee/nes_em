@@ -6,10 +6,12 @@ namespace nes_em {
 
 NROMCart::NROMCart(const NesFile& file) {
     mirroring = file.mirroring;
-    std::memcpy(chr_rom, file.chr_rom.data(), 0x2000);
-    std::memcpy(prg_rom, file.prg_rom.data(), 0x4000);
+    std::memcpy(chr_rom, file.chr_rom.data(), file.chr_rom.size());
+    if (file.prg_rom.size() > 0x8000)
+        throw std::runtime_error("maximum prg-rom size of 32768 bytes for nrom exceeded");
+    std::memcpy(prg_rom, file.prg_rom.data(), file.prg_rom.size());
     if (file.prg_rom.size() <= 0x4000)
-        std::memcpy(prg_rom + 0x4000, file.prg_rom.data(), 0x4000);
+        std::memcpy(prg_rom + 0x4000, file.prg_rom.data(), file.prg_rom.size());
 }
 
 BusRead NROMCart::cpu_read(uint16_t addr) {

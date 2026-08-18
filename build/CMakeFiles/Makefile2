@@ -134,8 +134,8 @@ CMakeFiles/nes_client.dir/clean:
 # Target rules for target CMakeFiles/nes_em.dir
 
 # All Build rule for target.
-CMakeFiles/nes_em.dir/all: CMakeFiles/nes_em_core.dir/all
 CMakeFiles/nes_em.dir/all: CMakeFiles/nes_client.dir/all
+CMakeFiles/nes_em.dir/all: CMakeFiles/nes_em_core.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em.dir/build.make CMakeFiles/nes_em.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/nes_em.dir/build.make CMakeFiles/nes_em.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/chenxi/source/repos/nes/build/CMakeFiles --progress-num=3,4 "Built target nes_em"

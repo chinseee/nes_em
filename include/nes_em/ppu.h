@@ -41,6 +41,8 @@ public:
 
     // memory-mapped regs
     std::bitset<8> ppuctrl, ppumask, ppustatus;
+    bool next_ppustatus;
+
     uint8_t oam_addr, oam_data, x_scroll, y_scroll;
     uint16_t ppu_addr;
     uint8_t ppu_data, oam_dma;
@@ -78,6 +80,8 @@ public:
     BusRead cpu_read(uint16_t);
     void cpu_write(uint16_t, uint8_t);
 
+    void oam_dma_write(uint8_t);
+    
     void coarse_x_inc();
     void y_inc();
 

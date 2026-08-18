@@ -41,33 +41,41 @@ public:
     uint8_t a, x, y, sp;
     std::bitset<8> p;
 
-    // temporary: simulate cpu cycles
-    uint64_t cycles = 0;
+    uint64_t cycles;
 
-    // interrupts
-    bool nmi_line, nmi_line_prev; // sampled /NMI input pin, current and previous cycle
-    bool nmi_pending;             // latched on nmi_line's falling edge, cleared once serviced
+    // interrupt flags
+    
+    bool interrupt_polling; // useful since not all instructions can poll for interrupts
+
+    bool nmi_line_cur, nmi_line_prev;
+    bool nmi_pending, nmi_latch, nmi_triggered;
     bool irq_line;
     bool irq_pending;
 
+    bool dma_get_cycle;
+    bool dmc_dma_flag;
+    uint16_t oam_dma_state, oam_dma_addr;
+
     CPU();
     void reset();
-
     void exec_inst();
 
-    void cycle();
+    void cycle_start();
+    void cycle_end();
+
+    void set_nmi_line(bool);
 
 private:
     void poll_interrupts();
 
     uint8_t inst_read();
-    uint8_t cycle_read(uint16_t);
-    void cycle_write(uint16_t, uint8_t);
+    uint8_t cpu_read(uint16_t);
+    void cpu_write(uint16_t, uint8_t);
     void push(uint8_t);
     uint8_t pull();
 
     void set_zn(uint8_t);
-    void branch(bool, uint8_t);
+    void branch(bool, uint16_t);
 
     // access
     void LDA(uint16_t);
