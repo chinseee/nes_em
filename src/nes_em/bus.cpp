@@ -101,7 +101,7 @@ uint16_t Bus::unmirror_ppu_addr(uint16_t addr) {
     switch (cart->mirroring) {
     case Mirroring::Horizontal:
         unmirrored_addr &= 0x3ff;
-        if (addr | 0x800)
+        if (addr & 0x800)
             unmirrored_addr |= 0x400;
         break;
     case Mirroring::Vertical:

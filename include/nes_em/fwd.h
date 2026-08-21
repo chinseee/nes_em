@@ -18,7 +18,7 @@ class CPU;
 class PPU;
 class Bus;
 class Cartridge;
-class NES;
+struct NES;
 
 struct BusRead {
     uint8_t value;

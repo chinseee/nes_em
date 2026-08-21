@@ -15,7 +15,7 @@ NES::NES() {
 }
 
 void NES::load(const NesFile& file) {
-    cart = std::move(Cartridge::create(file));
+    cart = Cartridge::create(file);
     bus.load(cart.get());
 }
 

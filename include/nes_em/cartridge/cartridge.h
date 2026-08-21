@@ -15,6 +15,8 @@ public:
     virtual void ppu_write(uint16_t, uint8_t) = 0;
 
     static std::unique_ptr<Cartridge> create(const NesFile&);
+
+    virtual ~Cartridge() = default;
 };
 
 }

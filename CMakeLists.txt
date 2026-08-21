@@ -12,7 +12,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 if(MSVC)
     add_compile_options(/O2 /W4 /WX)
 else()
-    add_compile_options(-O3 -Wall -Wextra -Wpedantic -Werror -fverbose-asm)
+    add_compile_options(-O3 -Wall -Wextra -Wpedantic -Werror -Wno-gnu-line-marker -fverbose-asm)
 endif()
 
 add_library(nes_em_core
