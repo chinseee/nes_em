@@ -79,6 +79,10 @@ void PPU::pre_render_scanline() {
     if (!rendering_enabled)
         return;
 
+    // this scanline (261) also evaluates+fetches sprites for scanline 0
+    if (dot >= 1 && dot <= 256)
+        evaluate_sprites();
+
     bool fetching = (dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336);
     if (fetching)
         bg_fetch_cycle();
@@ -86,8 +90,10 @@ void PPU::pre_render_scanline() {
     if (dot == 256)
         y_inc();
 
-    if (dot == 257)
+    if (dot == 257) {
         v = (v & 0x7be0) | (t & 0x041f); // copy horizontal bits from t
+        fetch_sprites();
+    }
 
     if (dot >= 280 && dot <= 304)
         v = (v & 0x041f) | (t & 0x7be0); // copy vertical bits from t
@@ -106,76 +112,141 @@ void PPU::vblank_scanline() {
 uint8_t PPU::visible_scanline() {
     bool rendering_enabled = ppumask[SHOW_BG_BIT] || ppumask[SHOW_SPRITE_BIT];
 
+    if (!rendering_enabled) {
+        bus->ppu_data = 0x3f00;
+        return bus->ppu_read();
+    }
+
     if (dot >= 1 && dot <= 256) {
         // sprites for this scanline were already fetched during the previous
-        // scanline's dots 257-320; evaluate now for the *next* scanline
-        if (dot == 1 && rendering_enabled)
-            evaluate_sprites();
+        // scanline's dot 257; step evaluation for the *next* scanline
+        evaluate_sprites();
+        bg_fetch_cycle();
 
-        if (rendering_enabled)
-            bg_fetch_cycle();
-
-        if (dot == 256 && rendering_enabled)
+        if (dot == 256)
             y_inc();
 
         return render_pixel();
     }
 
-    if (dot == 257 && rendering_enabled) {
+    if (dot == 257) {
         v = (v & 0x7be0) | (t & 0x041f); // copy horizontal bits from t
         fetch_sprites();
     }
 
-    if (dot >= 321 && dot <= 336 && rendering_enabled)
+    if (dot >= 321 && dot <= 336)
         bg_fetch_cycle();
 
     // dots 257-320, 337-340 carry no visible pixel
-    return bus->ppu_read(0x3f00);
+    bus->ppu_data = 0x3f00;
+    return bus->ppu_read();
 }
 
+// Steps the sprite evaluation state machine by one dot. Called for every dot
+// in 1-256 of the visible and pre-render scanlines; fills secondary_oam with
+// (up to) the 8 sprites that intersect the *following* scanline.
+//
+// Mirrors real hardware timing: dots 1-64 clear secondary OAM to 0xff (one
+// byte every 2 dots), then dots 65-256 walk primary OAM one byte per dot,
+// reading on odd dots and writing/deciding on even dots.
 void PPU::evaluate_sprites() {
-    for (uint8_t& b : secondary_oam)
-        b = 0xff;
+    if (dot == 1) {
+        oam_eval_n = 0;
+        oam_eval_m = 0;
+        oam_eval_dest = 0;
+        oam_eval_count = 0;
+        oam_eval_copying = false;
+        oam_eval_done = false;
+        sprite_zero_hit_possible = false;
+    }
 
+    if (dot <= 64) {
+        if (dot % 2 == 0)
+            secondary_oam[dot / 2 - 1] = 0xff;
+        return;
+    }
+
+    if (oam_eval_done)
+        return;
+
+    if (dot % 2 == 1) {
+        // odd dots: read the next byte out of primary OAM
+        oam_eval_latch = oam[oam_eval_n * 4 + oam_eval_m];
+        return;
+    }
+
+    // even dots: act on the byte just read
     uint8_t sprite_height = ppuctrl[SPRITE_HEIGHT_BIT] ? 16 : 8;
-    int target_scanline = scanline + 1;
+    uint16_t target_scanline = (scanline == 261) ? 0 : scanline + 1;
 
-    sprite_count = 0;
-    sprite_zero_on_line = false;
+    if (oam_eval_copying) {
+        secondary_oam[oam_eval_dest] = oam_eval_latch;
+        ++oam_eval_dest;
+        ++oam_eval_m;
 
-    for (uint8_t n = 0; n < 64; ++n) {
-        uint8_t sprite_y = oam[n * 4];
-        int diff = target_scanline - sprite_y;
+        if (oam_eval_m == 4) {
+            oam_eval_m = 0;
+            oam_eval_copying = false;
+            ++oam_eval_n;
+            if (oam_eval_n == 64)
+                oam_eval_done = true;
+        }
+    }
+    else if (oam_eval_count < 8) {
+        // the Y-coordinate is always tentatively copied; the destination
+        // pointer only advances (confirming the copy) if it's in range,
+        // so an out-of-range sprite's Y gets overwritten by the next one
+        secondary_oam[oam_eval_dest] = oam_eval_latch;
 
-        if (diff < 0 || diff >= sprite_height)
-            continue;
+        int diff = (int)target_scanline - (int)oam_eval_latch;
+        bool in_range = diff >= 0 && diff < sprite_height;
 
-        if (sprite_count < 8) {
-            for (uint8_t b = 0; b < 4; ++b)
-                secondary_oam[sprite_count * 4 + b] = oam[n * 4 + b];
+        if (in_range) {
+            ++oam_eval_dest;
+            ++oam_eval_count;
+            if (oam_eval_n == 0)
+                sprite_zero_hit_possible = true;
 
-            if (n == 0)
-                sprite_zero_on_line = true;
-
-            ++sprite_count;
+            oam_eval_copying = true;
+            oam_eval_m = 1;
         }
         else {
-            // NB: doesn't reproduce hardware's buggy overflow evaluation, just the flag
+            ++oam_eval_n;
+            if (oam_eval_n == 64)
+                oam_eval_done = true;
+        }
+    }
+    else {
+        // 8 sprites already found: keep scanning purely to detect overflow.
+        // NB: doesn't reproduce hardware's buggy diagonal-read behavior here, just the flag.
+        int diff = (int)target_scanline - (int)oam_eval_latch;
+        bool in_range = diff >= 0 && diff < sprite_height;
+
+        if (in_range) {
             ppustatus[SPRITE_OVERFLOW_BIT] = true;
-            break;
+            oam_eval_done = true;
+        }
+        else {
+            ++oam_eval_n;
+            if (oam_eval_n == 64)
+                oam_eval_done = true;
         }
     }
 }
 
 void PPU::fetch_sprites() {
+    sprite_count = oam_eval_count;
+    sprite_zero_on_line = sprite_zero_hit_possible;
+
     uint8_t sprite_height = ppuctrl[SPRITE_HEIGHT_BIT] ? 16 : 8;
+    uint16_t target_scanline = (scanline == 261) ? 0 : scanline + 1;
 
     for (uint8_t i = 0; i < sprite_count; ++i) {
         uint8_t sprite_y = secondary_oam[i * 4];
         uint8_t tile = secondary_oam[i * 4 + 1];
         uint8_t attr = secondary_oam[i * 4 + 2];
 
-        int row = (scanline + 1) - sprite_y;
+        int row = target_scanline - sprite_y;
         if (attr & 0x80) // vertical flip
             row = sprite_height - 1 - row;
 
@@ -194,8 +265,10 @@ void PPU::fetch_sprites() {
             pattern_addr = table + (tile << 4) + row;
         }
 
-        sprite_ptrn_lo[i] = bus->ppu_read(pattern_addr);
-        sprite_ptrn_hi[i] = bus->ppu_read(pattern_addr + 8);
+        bus->ppu_data = pattern_addr;
+        sprite_ptrn_lo[i] = bus->ppu_read();
+        bus->ppu_data += 8;
+        sprite_ptrn_hi[i] = bus->ppu_read();
         sprite_attr[i] = attr;
         sprite_x[i] = secondary_oam[i * 4 + 3];
     }
@@ -206,8 +279,11 @@ uint8_t PPU::render_pixel() {
     bool show_sprites = ppumask[SHOW_SPRITE_BIT];
     uint16_t x_pos = dot - 1;
 
-    if (!show_bg && !show_sprites)
-        return bus->ppu_read(0x3f00);
+    if (!show_bg && !show_sprites) {
+        bus->ppu_data = 0x3f00;
+        return bus->ppu_read();
+    }
+        
 
     uint8_t bg_pixel = 0, bg_palette = 0;
     if (show_bg && !(x_pos < 8 && !ppumask[SHOW_BG_LEFT_BIT])) {
@@ -243,15 +319,22 @@ uint8_t PPU::render_pixel() {
         }
     }
 
-    if (sprite_is_zero && bg_pixel != 0 && sprite_pixel != 0 && x_pos != 255)
+    if (sprite_is_zero && bg_pixel != 0 && sprite_pixel != 0 && x_pos != 255) {
         ppustatus[SPRITE_ZERO_HIT_BIT] = true;
+    }
+        
 
     bool use_sprite = sprite_pixel != 0 && (bg_pixel == 0 || !sprite_priority);
-    if (use_sprite)
-        return bus->ppu_read(0x3f10 + sprite_palette * 4 + sprite_pixel);
-    if (bg_pixel != 0)
-        return bus->ppu_read(0x3f00 + bg_palette * 4 + bg_pixel);
-    return bus->ppu_read(0x3f00);
+    if (use_sprite) {
+        bus->ppu_data = 0x3f10 + sprite_palette * 4 + sprite_pixel;
+        return bus->ppu_read();
+    }
+    if (bg_pixel != 0) {
+        bus->ppu_data = 0x3f00 + bg_palette * 4 + bg_pixel;
+        return bus->ppu_read();
+    }
+    bus->ppu_data = 0x3f00;
+    return bus->ppu_read();
 }
 
 void PPU::bg_fetch_cycle() {
@@ -262,31 +345,26 @@ void PPU::bg_fetch_cycle() {
 
     switch (dot % 8) {
     case 1:
-        nt_latch = bus->ppu_read(0x2000 | (v & 0x0fff));
+        bus->ppu_data = 0x2000 | (v & 0x0fff);
+        nt_latch = bus->ppu_read();
         break;
     case 3:
-        attr_latch = bus->ppu_read(0x23c0 | (v & 0x0c00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
+        bus->ppu_data = 0x23c0 | (v & 0x0c00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+        attr_latch = bus->ppu_read();
         break;
     case 5: {
         uint16_t pattern_base = ppuctrl[BG_PTRN_TABLE_BIT] ? 0x1000 : 0x0000;
-        bg_ptrn_lo_latch = bus->ppu_read(pattern_base + (nt_latch << 4) + ((v >> 12) & 0x7));
+        bus->ppu_data = pattern_base + (nt_latch << 4) + ((v >> 12) & 0x7);
+        bg_ptrn_lo_latch = bus->ppu_read();
         break;
     }
     case 7: {
         uint16_t pattern_base = ppuctrl[BG_PTRN_TABLE_BIT] ? 0x1000 : 0x0000;
-        bg_ptrn_hi_latch = bus->ppu_read(pattern_base + (nt_latch << 4) + ((v >> 12) & 0x7) + 8);
+        bus->ppu_data = pattern_base + (nt_latch << 4) + ((v >> 12) & 0x7) + 8;
+        bg_ptrn_hi_latch = bus->ppu_read();
         break;
     }
     case 0: {
-        bg_ptrn_lo |= bg_ptrn_lo_latch;
-        bg_ptrn_hi |= bg_ptrn_hi_latch;
-
-        // select the 2-bit palette index for this tile out of the fetched attribute byte
-        uint8_t attr_shift = ((v >> 4) & 0x04) | (v & 0x02);
-        uint8_t attr_bits = (attr_latch >> attr_shift) & 0x3;
-        bg_attr_lo |= (attr_bits & 0x1) ? 0xff : 0x00;
-        bg_attr_hi |= (attr_bits & 0x2) ? 0xff : 0x00;
-
         coarse_x_inc();
         break;
     }
@@ -321,21 +399,23 @@ BusRead PPU::cpu_read(uint16_t addr) {
 
         if (vram_addr >= 0x3f00) {
             // palette reads are not delayed by the internal buffer
-            value = bus->ppu_read(vram_addr);
+            bus->ppu_data = vram_addr;
+            value = bus->ppu_read();
             if (ppumask[GREYSCALE_BIT])
                 value &= 0x30;
 
             // palette reads are only 6 bits
             mask = 0xc0;
 
-            ppu_data_buffer = bus->ppu_read(vram_addr - 0x1000);
-            
+            bus->ppu_data = vram_addr - 0x1000;
+            ppu_data_buffer = bus->ppu_read();
         }
         else {
             value = ppu_data_buffer;
             mask = 0;
 
-            ppu_data_buffer = bus->ppu_read(vram_addr);
+            bus->ppu_data = vram_addr;
+            ppu_data_buffer = bus->ppu_read();
         }
 
         ppu_data = value;
@@ -404,7 +484,8 @@ void PPU::cpu_write(uint16_t addr, uint8_t value) {
         w = !w;
         break;
     case 0x7:
-        bus->ppu_write(v & 0x3fff, value);
+        bus->ppu_data = v & 0x3fff;
+        bus->ppu_write(value);
 
         
         v += ppuctrl[VRAM_INC_BIT] ? 32 : 1;
@@ -417,6 +498,15 @@ void PPU::oam_dma_write(uint8_t value) {
 }
 
 void PPU::coarse_x_inc() {
+    bg_ptrn_lo |= bg_ptrn_lo_latch;
+    bg_ptrn_hi |= bg_ptrn_hi_latch;
+
+    // select the 2-bit palette index for this tile out of the fetched attribute byte
+    uint8_t attr_shift = ((v >> 4) & 0x04) | (v & 0x02);
+    uint8_t attr_bits = (attr_latch >> attr_shift) & 0x3;
+    bg_attr_lo |= (attr_bits & 0x1) ? 0xff : 0x00;
+    bg_attr_hi |= (attr_bits & 0x2) ? 0xff : 0x00;
+
     if ((v & 0x1f) == 0x1f) {
         v &= 0x7fe0;
         v ^= 0x0400;

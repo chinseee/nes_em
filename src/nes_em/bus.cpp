@@ -114,41 +114,42 @@ uint16_t Bus::unmirror_ppu_addr(uint16_t addr) {
     return unmirrored_addr;
 }
 
-uint8_t Bus::ppu_read(uint16_t addr) {
+uint8_t Bus::ppu_read() {
     // TODO: add way for cartridges to disable internal vram
-    if (addr < 0x2000) {
-        BusRead read = cart->ppu_read(addr);
+    if (ppu_data < 0x2000) {
+        BusRead read = cart->ppu_read(ppu_data);
         ppu_data &= read.open_bus_mask;
         ppu_data |= (read.value & ~read.open_bus_mask);
     }
-    else if (addr < 0x3f00) {
-        ppu_data = vram[unmirror_ppu_addr(addr)];
+    else if (ppu_data < 0x3f00) {
+        ppu_data = vram[unmirror_ppu_addr(ppu_data)];
     }
-    else if (addr < 0x4000) {
-        addr &= 0x1f;
-        if (addr & 3)
-            ppu_data = palette_idxs[addr];
+    else if (ppu_data < 0x4000) {
+        ppu_data &= 0x1f;
+        if (ppu_data & 3)
+            ppu_data = palette_idxs[ppu_data];
         else
-            ppu_data = palette_idxs[addr & 0xf];
+            ppu_data = palette_idxs[ppu_data & 0xf];
     }
     return ppu_data;
 }
 
-void Bus::ppu_write(uint16_t addr, uint8_t value) {
-    ppu_data = value;
-    if (addr < 0x2000) {
-        cart->ppu_write(addr, value);
+void Bus::ppu_write(uint8_t value) {
+    if (ppu_data < 0x2000) {
+        cart->ppu_write(ppu_data, value);
     }
-    else if (addr < 0x3f00) {
-        vram[unmirror_ppu_addr(addr)] = value;
+    else if (ppu_data < 0x3f00) {
+        vram[unmirror_ppu_addr(ppu_data)] = value;
     }
-    else if (addr < 0x4000) {
-        addr &= 0x1f;
-        if (addr & 3)
-            palette_idxs[addr] = value;
+    else if (ppu_data < 0x4000) {
+        ppu_data &= 0x1f;
+        if (ppu_data & 3)
+            palette_idxs[ppu_data] = value;
         else
-            palette_idxs[addr & 0xf] = value;
+            palette_idxs[ppu_data & 0xf] = value;
     }
+    ppu_data &= 0x3f00;
+    ppu_data |= value;
 }
 
 

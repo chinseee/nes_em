@@ -23,7 +23,7 @@ public:
     bool is_cpu_read;
 
 
-    uint8_t ppu_data;
+    uint16_t ppu_data;
 
     // TODO: decide if implementing decay is worth it
     uint8_t ppu_io_latch;
@@ -41,8 +41,8 @@ public:
 
     uint16_t unmirror_ppu_addr(uint16_t);
 
-    uint8_t ppu_read(uint16_t);
-    void ppu_write(uint16_t, uint8_t);
+    uint8_t ppu_read();
+    void ppu_write(uint8_t);
 };
 
 }

@@ -1,5 +1,5 @@
-/Users/chenxi/source/repos/nes_em/build/CMakeFiles/nes_em_core.dir
-/Users/chenxi/source/repos/nes_em/build/CMakeFiles/nes_client.dir
-/Users/chenxi/source/repos/nes_em/build/CMakeFiles/nes_em.dir
-/Users/chenxi/source/repos/nes_em/build/CMakeFiles/edit_cache.dir
-/Users/chenxi/source/repos/nes_em/build/CMakeFiles/rebuild_cache.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/nes_em_core.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/nes_client.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/nes_em.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/edit_cache.dir
+/home/chenxi/source/repos/nes/build/CMakeFiles/rebuild_cache.dir

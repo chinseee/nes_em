@@ -52,16 +52,22 @@ public:
     bool irq_line;
     bool irq_pending;
 
-    bool dma_get_cycle;
-    bool dmc_dma_flag;
+    bool is_read_cycle;
+    bool dma_halt_flag;
+    uint8_t dmc_dma_state;
     uint16_t oam_dma_state, oam_dma_addr;
+    bool is_get_cycle;
 
     CPU();
     void reset();
     void exec_inst();
 
     void cycle_start();
+    void cycle_start_no_dma();
     void cycle_end();
+
+    void handle_dma();
+    void step_dma_state();
 
     void set_nmi_line(bool);
 

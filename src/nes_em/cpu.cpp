@@ -59,45 +59,14 @@ void CPU::reset() {
     pc = lo | inst_read() << 8;
 }
 
-// void CPU::cycle() {
-//     cycle_end();
-    // if (dmc_dma_flag) {
-    //     // handle dmc dma
-    // }
-    // if (oam_dma_state > 0) {
-    //     // oam dma halt cycle
-    //     cycle_start();
-    //     cycle_end();
-    // }
-    // uint8_t oam_dma_data = 0;
-    // uint8_t oam_dma_idx = 0;
-    // while (oam_dma_state > 0) {
-    //     if (oam_dma_state & 1) {
-    //         cycle_start();
-    //         bus->cpu_write(0x2004, oam_dma_data);
-    //         cycle_end();
-    //     }
-    //     else {
-    //         if (!dma_get_cycle) {
-    //             // oam dma alignment cycle
-    //             cycle_start();
-    //             cycle_end();
-    //         }
-    //         cycle_start();
-    //         oam_dma_data = bus->cpu_read(oam_dma_addr | oam_dma_idx);
-    //         ++oam_dma_idx;
-    //         cycle_end();
-    //     }
-    //     --oam_dma_state;
-    // }
-
-//     cycle_start();
-// }
-
 void CPU::cycle_start() {
-    
+    cycle_start_no_dma();
+    handle_dma();
+}
+
+void CPU::cycle_start_no_dma() {
     ++cycles;
-    dma_get_cycle = !dma_get_cycle;
+    // apu cycle start/end
     ppu->cycle();
 }
 
@@ -106,6 +75,71 @@ void CPU::cycle_end() {
     nmi_line_prev = nmi_line_cur;
     ppu->cycle();
     ppu->cycle();
+    is_get_cycle = !is_get_cycle;
+}
+
+void CPU::handle_dma() {
+    // can only halt on read cycles
+    if (!is_read_cycle || !dma_halt_flag)
+        return;
+    
+    // halt cycle
+    cycle_end();
+    bus->cpu_read();
+    if (dmc_dma_state == 3)
+        dmc_dma_state = 2;
+    
+    // handle oam dma
+    // it is guaranteed this is the only oam dma we have to handle now,
+    // since oam dma can only be triggered on write cycle
+    uint8_t oam_dma_data = bus->cpu_data;
+    while (oam_dma_state > 0) {
+        if (dmc_dma_state == 1) {
+            // if dmc dma is ready, it executes over the oam dma
+            // dmc dma read cycle
+            
+            // TODO: add data transfer here
+            cycle_start_no_dma();
+            cycle_end();
+            
+            continue;
+        }
+        
+        if (dmc_dma_state == 3) {
+            // oam dma cycle counts as dmc dma halt cycle
+            dmc_dma_state = 2;
+        }
+        else if (dmc_dma_state == 2) {
+            // oam dma cycle counts as dmc dma dummy/align cycle
+            if (!is_get_cycle)
+                dmc_dma_state = 1;
+        }
+
+        cycle_start_no_dma();
+        if (oam_dma_state & 1) {
+            // oam dma write cycle
+            bus->cpu_addr = 0x2004;
+            bus->cpu_data = oam_dma_data;
+            cycle_end();
+            bus->cpu_write();
+        }
+        else if (is_get_cycle) {
+            // oam dma read cycle
+            bus->cpu_addr = oam_dma_addr;
+            ++oam_dma_addr;
+            cycle_end();
+            oam_dma_data = bus->cpu_read();
+        }
+        else {
+            // oam dma alignment cycle
+            cycle_end();
+            bus->cpu_read();
+        }
+        --oam_dma_state;
+    }
+
+    dma_halt_flag = false;
+    dmc_dma_state = 0;
 }
 
 void CPU::set_nmi_line(bool nmi_line) {
@@ -122,6 +156,7 @@ uint8_t CPU::inst_read() {
 }
 
 uint8_t CPU::cpu_read(uint16_t addr) {
+    is_read_cycle = true;
     cycle_start();
     bus->cpu_addr = addr;
     cycle_end();
@@ -129,6 +164,7 @@ uint8_t CPU::cpu_read(uint16_t addr) {
 }
 
 void CPU::cpu_write(uint16_t addr, uint8_t value) {
+    is_read_cycle = false;
     cycle_start();
     bus->cpu_addr = addr;
     bus->cpu_data = value;
@@ -1151,6 +1187,9 @@ void CPU::exec_inst() {
     else {
         interrupt_polling = true;
         
+        
+            
+
         uint8_t inst = inst_read();
         (this->*(jump_table[inst]))();
 

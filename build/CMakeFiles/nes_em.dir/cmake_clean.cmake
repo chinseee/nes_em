@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/Users/chenxi/source/repos/nes_em/bin/nes_em"
-  "/Users/chenxi/source/repos/nes_em/bin/nes_em.pdb"
+  "/home/chenxi/source/repos/nes/bin/nes_em"
+  "/home/chenxi/source/repos/nes/bin/nes_em.pdb"
   "CMakeFiles/nes_em.dir/src/main.cpp.o"
   "CMakeFiles/nes_em.dir/src/main.cpp.o.d"
 )

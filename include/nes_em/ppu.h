@@ -65,6 +65,11 @@ public:
     uint8_t sprite_count;
     bool sprite_zero_on_line, sprite_zero_hit_possible;
 
+    // sprite evaluation state machine (stepped once per dot across dots 1-256;
+    // fills secondary_oam with the up-to-8 sprites for the *following* scanline)
+    uint8_t oam_eval_n, oam_eval_m, oam_eval_dest, oam_eval_latch, oam_eval_count;
+    bool oam_eval_copying, oam_eval_done;
+
     // states for emulation
     uint16_t scanline, dot;
 
